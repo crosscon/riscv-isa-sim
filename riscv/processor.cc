@@ -435,6 +435,14 @@ void state_t::reset(processor_t* const proc, reg_t max_isa)
     csrmap[addr] = std::make_shared<pmpcfg_csr_t>(proc, addr);
   }
 
+  for (int i = 0; i < max_pmp; ++i) {
+    csrmap[CSR_SPMPADDR0 + i] = spmpaddr[i] = std::make_shared<spmpaddr_csr_t>(proc, CSR_SPMPADDR0 + i);
+  }
+  for (int i = 0; i < max_pmp; i += xlen / 8) {
+    reg_t addr = CSR_SPMPCFG0 + i / 4;
+    csrmap[addr] = std::make_shared<spmpcfg_csr_t>(proc, addr);
+  }
+
   csrmap[CSR_FFLAGS] = fflags = std::make_shared<float_csr_t>(proc, CSR_FFLAGS, FSR_AEXC >> FSR_AEXC_SHIFT, 0);
   csrmap[CSR_FRM] = frm = std::make_shared<float_csr_t>(proc, CSR_FRM, FSR_RD >> FSR_RD_SHIFT, 0);
   assert(FSR_AEXC_SHIFT == 0);  // composite_csr_t assumes fflags begins at bit 0
@@ -627,6 +635,14 @@ void processor_t::reset()
     // initialize PMP to permit unprivileged access to all of memory.
     put_csr(CSR_PMPADDR0, ~reg_t(0));
     put_csr(CSR_PMPCFG0, PMP_R | PMP_W | PMP_X | PMP_NAPOT);
+  }
+
+  // TODO: Using n_pmp.
+  if (n_pmp > 0) {
+    // For backwards compatibility with software that is unaware of SPMP,
+    // initialize SPMP to permit unprivileged access to all of memory.
+    put_csr(CSR_SPMPADDR0, ~reg_t(0));
+    put_csr(CSR_SPMPCFG0, PMP_R | PMP_W | PMP_X | PMP_NAPOT);
   }
 
   for (auto e : custom_extensions) // reset any extensions

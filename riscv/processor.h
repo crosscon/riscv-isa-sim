@@ -151,6 +151,7 @@ struct state_t
 
   static const int max_pmp = 64;
   pmpaddr_csr_t_p pmpaddr[max_pmp];
+  spmpaddr_csr_t_p spmpaddr[max_pmp];
 
   float_csr_t_p fflags;
   float_csr_t_p frm;

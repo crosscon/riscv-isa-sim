@@ -21,7 +21,7 @@ class lfsr_t
 };
 
 class cache_sim_t
-{
+{ 
  public:
   cache_sim_t(size_t sets, size_t ways, size_t linesz, const char* name);
   cache_sim_t(const cache_sim_t& rhs);

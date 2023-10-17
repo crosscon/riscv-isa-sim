@@ -84,6 +84,8 @@ class basic_csr_t: public csr_t {
   reg_t val;
 };
 
+// PMP related registers
+
 class pmpaddr_csr_t: public csr_t {
  public:
   pmpaddr_csr_t(processor_t* const proc, const reg_t addr);
@@ -137,6 +139,63 @@ class pmpcfg_csr_t: public csr_t {
  protected:
   virtual bool unlogged_write(const reg_t val) noexcept override;
 };
+
+// SPMP related registers
+
+class spmpaddr_csr_t: public csr_t {
+ public:
+  spmpaddr_csr_t(processor_t* const proc, const reg_t addr);
+  virtual void verify_permissions(insn_t insn, bool write) const override;
+  virtual reg_t read() const noexcept override;
+
+  // Does a 4-byte access at the specified address match this SPMP entry?
+  bool match4(reg_t addr) const noexcept;
+
+  // Does the specified range match only a proper subset of this page?
+  bool subset_match(reg_t addr, reg_t len) const noexcept;
+
+  // Is the specified access allowed given the spmpcfg privileges?
+  bool access_ok(access_type type, reg_t mode) const noexcept;
+
+  // To check lock bit status from outside like mseccfg
+  bool is_locked() const noexcept {
+    return cfg & PMP_L;
+  }
+
+ protected:
+  virtual bool unlogged_write(const reg_t val) noexcept override;
+ private:
+  // Assuming this is configured as TOR, return address for top of
+  // range. Also forms bottom-of-range for next-highest spmpaddr
+  // register if that one is TOR.
+  reg_t tor_paddr() const noexcept;
+
+  // Assuming this is configured as TOR, return address for bottom of
+  // range. This is tor_paddr() from the previous spmpaddr register.
+  reg_t tor_base_paddr() const noexcept;
+
+  // Assuming this is configured as NAPOT or NA4, return mask for paddr.
+  // E.g. for 4KiB region, returns 0xffffffff_fffff000.
+  reg_t napot_mask() const noexcept;
+
+  bool next_locked_and_tor() const noexcept;
+  reg_t val;
+  friend class spmpcfg_csr_t;  // so he can access cfg
+  uint8_t cfg;
+  const size_t pmpidx;
+};
+
+typedef std::shared_ptr<spmpaddr_csr_t> spmpaddr_csr_t_p;
+
+class spmpcfg_csr_t: public csr_t {
+ public:
+  spmpcfg_csr_t(processor_t* const proc, const reg_t addr);
+  virtual void verify_permissions(insn_t insn, bool write) const override;
+  virtual reg_t read() const noexcept override;
+ protected:
+  virtual bool unlogged_write(const reg_t val) noexcept override;
+};
+
 
 class mseccfg_csr_t: public basic_csr_t {
  public:
