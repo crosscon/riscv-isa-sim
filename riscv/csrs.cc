@@ -369,7 +369,6 @@ bool spmpaddr_csr_t::subset_match(reg_t addr, reg_t len) const noexcept {
   reg_t base = tor_base_paddr();
   reg_t tor = tor_paddr();
 
-  // TODO: Using PMP_x.
   if ((cfg & PMP_A) == 0) return false;
 
   bool is_tor = (cfg & PMP_A) == PMP_TOR;
@@ -387,6 +386,8 @@ bool spmpaddr_csr_t::subset_match(reg_t addr, reg_t len) const noexcept {
 }
 
 bool spmpaddr_csr_t::access_ok(access_type type, reg_t mode) const noexcept {
+  
+  // TODO: Check if accesses permissions are checked as needed for SPMP.  
 
   // TODO: Using PMP_x.
   const bool cfgx = cfg & PMP_X;
@@ -519,6 +520,7 @@ bool mseccfg_csr_t::unlogged_write(const reg_t val) noexcept {
   if (proc->n_pmp == 0)
     return false;
 
+  // TODO: Figure out what to do here for SPMP case. Related to the PMP enhancement extension (i.e. Smepmp extension).
   // pmpcfg.L is 1 in any rule or entry (including disabled entries)
   const bool pmplock_recorded = std::any_of(state->pmpaddr, state->pmpaddr + proc->n_pmp,
           [](const pmpaddr_csr_t_p & c) { return c->is_locked(); } );

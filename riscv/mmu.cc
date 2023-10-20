@@ -5,6 +5,8 @@
 #include "arith.h"
 #include "simif.h"
 #include "processor.h"
+#include <iostream>
+#include <ostream>
 
 mmu_t::mmu_t(simif_t* sim, endianness_t endianness, processor_t* proc)
  : sim(sim), proc(proc),
@@ -54,6 +56,9 @@ void throw_access_exception(bool virt, reg_t addr, access_type type)
 
 reg_t mmu_t::translate(mem_access_info_t access_info, reg_t len)
 {
+  //fprintf(stderr, "Entering translate ... addr = 0x%lx, type = %u, len = 0x%lx\n",
+  //        access_info.vaddr, access_info.type, len);
+          
   reg_t addr = access_info.vaddr;
   access_type type = access_info.type;
   if (!proc)
@@ -63,6 +68,8 @@ reg_t mmu_t::translate(mem_access_info_t access_info, reg_t len)
   reg_t mode = (reg_t) access_info.effective_priv;
 
   reg_t paddr = walk(access_info) | (addr & (PGSIZE-1));
+  if (!spmp_ok(paddr, len, type, mode))
+    throw_access_exception(virt, addr, type);
   if (!pmp_ok(paddr, len, type, mode))
     throw_access_exception(virt, addr, type);
   return paddr;
@@ -330,7 +337,8 @@ tlb_entry_t mmu_t::refill_tlb(reg_t vaddr, reg_t paddr, char* host_addr, access_
       (check_triggers_store && type == STORE))
     expected_tag |= TLB_CHECK_TRIGGERS;
 
-  if (pmp_homogeneous(paddr & ~reg_t(PGSIZE - 1), PGSIZE)) {
+  if (spmp_homogeneous(paddr & ~reg_t(PGSIZE - 1), PGSIZE) &&
+      pmp_homogeneous(paddr & ~reg_t(PGSIZE - 1), PGSIZE)) {
     if (type == FETCH) tlb_insn_tag[idx] = expected_tag;
     else if (type == STORE) tlb_store_tag[idx] = expected_tag;
     else tlb_load_tag[idx] = expected_tag;
@@ -372,6 +380,40 @@ bool mmu_t::pmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode)
           && (!mseccfg_mml || ((type == LOAD) || (type == STORE))));
 }
 
+bool mmu_t::spmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode)
+{
+  //fprintf(proc->get_log_file(), "Entering spmp_ok ...\n");
+  // TODO: Using n_pmp.
+  if (!proc || proc->n_pmp == 0)
+    return true;
+
+  for (size_t i = 0; i < proc->n_pmp; i++) {
+    // Check each 4-byte sector of the access
+    bool any_match = false;
+    bool all_match = true;
+    for (reg_t offset = 0; offset < len; offset += 1 << PMP_SHIFT) {
+      reg_t cur_addr = addr + offset;
+      bool match = proc->state.spmpaddr[i]->match4(cur_addr);
+      any_match |= match;
+      all_match &= match;
+    }
+
+    if (any_match) {
+      // If the PMP matches only a strict subset of the access, fail it
+      if (!all_match)
+        return false;
+
+      return proc->state.spmpaddr[i]->access_ok(type, mode);
+    }
+  }
+
+  // in case matching region is not found
+  const bool mseccfg_mml = proc->state.mseccfg->get_mml();
+  const bool mseccfg_mmwp = proc->state.mseccfg->get_mmwp();
+  return (((mode == PRV_M) || (mode == PRV_S)) && !mseccfg_mmwp
+          && (!mseccfg_mml || ((type == LOAD) || (type == STORE))));
+}
+
 reg_t mmu_t::pmp_homogeneous(reg_t addr, reg_t len)
 {
   if ((addr | len) & (len - 1))
@@ -382,6 +424,21 @@ reg_t mmu_t::pmp_homogeneous(reg_t addr, reg_t len)
 
   for (size_t i = 0; i < proc->n_pmp; i++)
     if (proc->state.pmpaddr[i]->subset_match(addr, len))
+      return false;
+
+  return true;
+}
+
+reg_t mmu_t::spmp_homogeneous(reg_t addr, reg_t len)
+{
+  if ((addr | len) & (len - 1))
+    abort();
+
+  if (!proc)
+    return true;
+
+  for (size_t i = 0; i < proc->n_pmp; i++)
+    if (proc->state.spmpaddr[i]->subset_match(addr, len))
       return false;
 
   return true;

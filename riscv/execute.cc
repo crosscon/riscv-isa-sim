@@ -6,6 +6,7 @@
 #include "disasm.h"
 #include "decode_macros.h"
 #include <cassert>
+#include <cstdio>
 
 static void commit_log_reset(processor_t* p)
 {
@@ -223,6 +224,7 @@ void processor_t::step(size_t n)
   }
 
   while (n > 0) {
+    
     size_t instret = 0;
     reg_t pc = state.pc;
     mmu_t* _mmu = mmu;
@@ -252,6 +254,8 @@ void processor_t::step(size_t n)
         // Main simulation loop, slow path.
         while (instret < n)
         {
+          //fprintf(stderr, "Step ...\n");
+
           if (unlikely(!state.serialized && state.single_step == state.STEP_STEPPED)) {
             state.single_step = state.STEP_NONE;
             if (!state.debug_mode) {
