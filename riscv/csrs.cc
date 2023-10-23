@@ -314,27 +314,14 @@ bool spmpaddr_csr_t::unlogged_write(const reg_t val) noexcept {
   if (proc->n_pmp == 0)
     return false;
 
-  const bool lock_bypass = state->mseccfg->get_rlb();
-  const bool locked = !lock_bypass && (cfg & PMP_L);
-
   // TODO: Using n_pmp variable.
-  if (pmpidx < proc->n_pmp && !locked && !next_locked_and_tor()) {
-    this->val = val & ((reg_t(1) << (MAX_PADDR_BITS - PMP_SHIFT)) - 1);
-  }
-  else
+  if (pmpidx < proc->n_pmp) {
+    this->val = val & ((reg_t(1) << (MAX_PADDR_BITS - PMP_SHIFT)) - 1); 
+  } else {
     return false;
+  }
   proc->get_mmu()->flush_tlb();
   return true;
-}
-
-bool spmpaddr_csr_t::next_locked_and_tor() const noexcept {
-  // TODO: Using max_pmp variable.
-  if (pmpidx+1 >= state->max_pmp) return false;  // this is the last entry
-  const bool lock_bypass = state->mseccfg->get_rlb();
-  // TODO: Using PMP_x.
-  const bool next_locked = !lock_bypass && (state->spmpaddr[pmpidx+1]->cfg & PMP_L);
-  const bool next_tor = (state->spmpaddr[pmpidx+1]->cfg & PMP_A) == PMP_TOR;
-  return next_locked && next_tor;
 }
 
 reg_t spmpaddr_csr_t::tor_paddr() const noexcept {
@@ -358,7 +345,10 @@ bool spmpaddr_csr_t::match4(reg_t addr) const noexcept {
   // TODO: Using PMP_x.
   if ((cfg & PMP_A) == 0) return false;
   bool is_tor = (cfg & PMP_A) == PMP_TOR;
-  if (is_tor) return tor_base_paddr() <= addr && addr < tor_paddr();
+  if (is_tor) {
+    //fprintf(stderr, "base = 0x%lx, addr = 0x%lx, next = 0x%lx\n", tor_base_paddr(), addr, tor_paddr());
+    return tor_base_paddr() <= addr && addr < tor_paddr();
+  }
   // NAPOT or NA4:
   return ((addr ^ tor_paddr()) & napot_mask()) == 0;
 }
@@ -385,41 +375,86 @@ bool spmpaddr_csr_t::subset_match(reg_t addr, reg_t len) const noexcept {
   return !(is_tor ? tor_homogeneous : napot_homogeneous);
 }
 
-bool spmpaddr_csr_t::access_ok(access_type type, reg_t mode) const noexcept {
+bool spmpaddr_csr_t::access_ok(access_type type, reg_t mode, bool sstatus_sum) const noexcept  {
   
-  // TODO: Check if accesses permissions are checked as needed for SPMP.  
-
-  // TODO: Using PMP_x.
   const bool cfgx = cfg & PMP_X;
   const bool cfgw = cfg & PMP_W;
   const bool cfgr = cfg & PMP_R;
-  const bool cfgl = cfg & PMP_L;
+  const bool cfgs = cfg & SPMP_S;
 
-  const bool prvm = mode == PRV_M;
+  const bool mmode = mode == PRV_M;
+  const bool smode = mode == PRV_S;
+  const bool umode = mode == PRV_U;
 
   const bool typer = type == LOAD;
   const bool typex = type == FETCH;
   const bool typew = type == STORE;
   const bool normal_rwx = (typer && cfgr) || (typew && cfgw) || (typex && cfgx);
-  const bool mseccfg_mml = state->mseccfg->get_mml();
 
-  if (mseccfg_mml) {
-    if (cfgx && cfgw && cfgr && cfgl) {
-      // Locked Shared data region: Read only on both M and S/U mode.
-      return typer;
-    } else {
-      const bool mml_shared_region = !cfgr && cfgw;
-      const bool mml_chk_normal = (prvm == cfgl) && normal_rwx;
-      const bool mml_chk_shared =
-              (!cfgl && cfgx && (typer || typew)) ||
-              (!cfgl && !cfgx && (typer || (typew && prvm))) ||
-              (cfgl && typex) ||
-              (cfgl && typer && cfgx && prvm);
-      return mml_shared_region ? mml_chk_shared : mml_chk_normal;
+  if (mmode) {
+    return true;
+  }
+
+  if (cfgs) {
+    // S-mode-only
+
+    // TODO: What to do when a configuration is reserved?
+    //  As far as I can see, the pmpcfgx register should never have the
+    //  reserved value because it is WARL.
+    const bool reserved = !cfgr && !cfgw && !cfgx;
+    if (reserved) {
+      return false;
     }
+
+    const bool shr_RO = cfgr && cfgw && cfgx;
+    const bool shared_region = shr_RO || (!cfgr && cfgw) ;
+    
+    if (shared_region) {
+      const bool shr_RX = smode && !cfg && cfgw && cfgx;
+      const bool shr_X_WX = umode && !cfgr && cfgw && cfgx;
+      const bool shr_X_W = !cfgr && cfgw && !cfgx;
+      return
+        (shr_RO && typer) ||
+        (shr_RX && (typer || typex)) ||
+        (shr_X_WX && typex) ||
+        (shr_X_W && typex);
+
+    } else if (smode) {
+      // In S-mode but not in the shared region
+      return normal_rwx;
+
+    } else {
+      // In U-mode but not in the shared region
+      return false;
+    }
+
   } else {
-    const bool m_bypass = (prvm && !cfgl);
-    return m_bypass || normal_rwx;
+    // U-mode-only
+
+    const bool shared_region = !cfgr && cfgw ;
+    
+    if (shared_region) {
+      const bool shr_RW_WX = !cfgr && cfgw && cfgx;
+      const bool shr_RW_W = smode && !cfgr && cfgw && !cfgx;
+      const bool shr_RO = umode && !cfgr && cfgw && !cfgx;
+      return
+        (shr_RW_WX && (typer || typew)) ||
+        (shr_RW_W && (typer || typew)) ||
+        (shr_RO && typer);
+        
+    } else if (smode) {
+      // In S-mode but not in a shared region
+      if (sstatus_sum) {
+        return (typer && cfgr) || (typew && cfgw);
+      } else {
+        return false;
+      }
+
+    } else {
+      // In U-mode but not in a shared region
+      return normal_rwx;
+    }
+
   }
 }
 
@@ -453,39 +488,30 @@ bool spmpcfg_csr_t::unlogged_write(const reg_t val) noexcept {
     return false;
 
   bool write_success = false;
-  const bool rlb = state->mseccfg->get_rlb();
-  const bool mml = state->mseccfg->get_mml();
+
   for (size_t i0 = (address - CSR_SPMPCFG0) * 4, i = i0; i < i0 + proc->get_xlen() / 8; i++) {
     if (i < proc->n_pmp) {
-      const bool locked = (state->spmpaddr[i]->cfg & PMP_L);
-      if (rlb || !locked) {
-        // TODO: We are using PMP_x declarations.
-        uint8_t cfg = (val >> (8 * (i - i0))) & (PMP_R | PMP_W | PMP_X | PMP_A | PMP_L);
-        // Drop R=0 W=1 when MML = 0
-        // Remove the restriction when MML = 1
-        if (!mml) {
-          cfg &= ~PMP_W | ((cfg & PMP_R) ? PMP_W : 0);
-        }
-        // Disallow A=NA4 when granularity > 4
-        if (proc->lg_pmp_granularity != PMP_SHIFT && (cfg & PMP_A) == PMP_NA4)
-          cfg |= PMP_NAPOT;
+      // TODO: Check if there are any other restrictions when writing to spmpcfgx registers.
 
-        // TODO: Does the following also hold for SPMSs?
-        /*
-         * Adding a rule with executable privileges that either is M-mode-only or a locked Shared-Region
-         * is not possible and such spmpcfg writes are ignored, leaving spmpcfg unchanged.
-         * This restriction can be temporarily lifted e.g. during the boot process, by setting mseccfg.RLB.
-         */
-        const bool cfgx = cfg & PMP_X;
-        const bool cfgw = cfg & PMP_W;
-        const bool cfgr = cfg & PMP_R;
-        if (rlb || !(mml && ((cfg & PMP_L)      // M-mode-only or a locked Shared-Region
-                && !(cfgx && cfgw && cfgr)      // RWX = 111 is allowed
-                && (cfgx || (cfgw && !cfgr))    // X=1 or RW=01 is not allowed
-        ))) {
-          state->spmpaddr[i]->cfg = cfg;
-        }
+      // TODO: We are using PMP_x declarations.
+      uint8_t cfg = (val >> (8 * (i - i0))) & (PMP_R | PMP_W | PMP_X | PMP_A | PMP_L);
+
+      // Disallow A=NA4 when granularity > 4
+      if (proc->lg_pmp_granularity != PMP_SHIFT && (cfg & PMP_A) == PMP_NA4)
+        cfg |= PMP_NAPOT;
+
+      const bool cfgx = cfg & PMP_X;
+      const bool cfgw = cfg & PMP_W;
+      const bool cfgr = cfg & PMP_R;
+      const bool cfgs = cfg & SPMP_S;
+      const bool reserved = !cfgr && !cfgw && !cfgx;
+      if ((cfg & PMP_A) != 0 && reserved) {
+        // TODO: Is it OK to set it to read only?
+        cfg |= PMP_R;
       }
+
+      state->spmpaddr[i]->cfg = cfg;
+
       write_success = true;
     }
   }

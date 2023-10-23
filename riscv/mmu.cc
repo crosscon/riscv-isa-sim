@@ -380,12 +380,24 @@ bool mmu_t::pmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode)
           && (!mseccfg_mml || ((type == LOAD) || (type == STORE))));
 }
 
+bool mmu_t::spmp_enabled() {
+  const bool satp = proc->state.satp->read();
+  const unsigned xlen = proc->get_const_xlen();
+  return xlen == 32 ?
+      (get_field(satp, SATP32_MODE) == SATP_MODE_OFF) :
+      (get_field(satp, SATP64_MODE) == SATP_MODE_OFF);
+}
+
 bool mmu_t::spmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode)
 {
-  //fprintf(proc->get_log_file(), "Entering spmp_ok ...\n");
   // TODO: Using n_pmp.
   if (!proc || proc->n_pmp == 0)
     return true;
+
+  if (!spmp_enabled()) {
+    fprintf(stderr, "SPMP is disabled.\n");
+    return true;
+  }
 
   for (size_t i = 0; i < proc->n_pmp; i++) {
     // Check each 4-byte sector of the access
@@ -403,15 +415,15 @@ bool mmu_t::spmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode)
       if (!all_match)
         return false;
 
-      return proc->state.spmpaddr[i]->access_ok(type, mode);
+      //fprintf(stderr, "Match found. i = %lu\n",i);
+
+      const bool sstatus_sum = proc->state.sstatus->read() & SSTATUS_SUM;
+      return proc->state.spmpaddr[i]->access_ok(type, mode, sstatus_sum);
     }
   }
 
   // in case matching region is not found
-  const bool mseccfg_mml = proc->state.mseccfg->get_mml();
-  const bool mseccfg_mmwp = proc->state.mseccfg->get_mmwp();
-  return (((mode == PRV_M) || (mode == PRV_S)) && !mseccfg_mmwp
-          && (!mseccfg_mml || ((type == LOAD) || (type == STORE))));
+  return (mode == PRV_M) || (mode == PRV_S);
 }
 
 reg_t mmu_t::pmp_homogeneous(reg_t addr, reg_t len)
@@ -435,6 +447,9 @@ reg_t mmu_t::spmp_homogeneous(reg_t addr, reg_t len)
     abort();
 
   if (!proc)
+    return true;
+
+  if (!spmp_enabled())
     return true;
 
   for (size_t i = 0; i < proc->n_pmp; i++)

@@ -254,7 +254,7 @@ void processor_t::step(size_t n)
         // Main simulation loop, slow path.
         while (instret < n)
         {
-          //fprintf(stderr, "Step ...\n");
+          fprintf(stderr, "Step ...\n");
 
           if (unlikely(!state.serialized && state.single_step == state.STEP_STEPPED)) {
             state.single_step = state.STEP_NONE;

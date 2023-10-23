@@ -289,6 +289,8 @@
 #define PMP_L     0x80
 #define PMP_SHIFT 2
 
+#define SPMP_S    0x80
+
 #define PMP_TOR   0x08
 #define PMP_NA4   0x10
 #define PMP_NAPOT 0x18
