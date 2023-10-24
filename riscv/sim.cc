@@ -189,15 +189,20 @@ sim_t::sim_t(const cfg_t *cfg, bool halted,
       break;
 
     //handle pmp
+    // TODO: spmp should be handled separately.
     reg_t pmp_num, pmp_granularity;
     if (fdt_parse_pmp_num(fdt, cpu_offset, &pmp_num) != 0)
       pmp_num = 0;
     procs[cpu_idx]->set_pmp_num(pmp_num);
+    // TODO: spmp should be handled separately.
+    procs[cpu_idx]->set_spmp_num(pmp_num);
 
     if (fdt_parse_pmp_alignment(fdt, cpu_offset, &pmp_granularity) == 0) {
       procs[cpu_idx]->set_pmp_granularity(pmp_granularity);
+      // TODO: spmp should be handled separately.
+      procs[cpu_idx]->set_spmp_granularity(pmp_granularity);
     }
-
+    
     //handle mmu-type
     const char *mmu_type;
     rc = fdt_parse_mmu_type(fdt, cpu_offset, &mmu_type);

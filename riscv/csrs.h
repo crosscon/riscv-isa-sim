@@ -155,12 +155,7 @@ class spmpaddr_csr_t: public csr_t {
   bool subset_match(reg_t addr, reg_t len) const noexcept;
 
   // Is the specified access allowed given the spmpcfg privileges?
-  bool access_ok(access_type type, reg_t mode) const noexcept;
-
-  // To check lock bit status from outside like mseccfg
-  bool is_locked() const noexcept {
-    return cfg & PMP_L;
-  }
+  bool access_ok(access_type type, reg_t mode, bool sstatus_sum) const noexcept;
 
  protected:
   virtual bool unlogged_write(const reg_t val) noexcept override;

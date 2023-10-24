@@ -289,11 +289,20 @@
 #define PMP_L     0x80
 #define PMP_SHIFT 2
 
-#define SPMP_S    0x80
-
 #define PMP_TOR   0x08
 #define PMP_NA4   0x10
 #define PMP_NAPOT 0x18
+
+#define SPMP_R     0x01
+#define SPMP_W     0x02
+#define SPMP_X     0x04
+#define SPMP_A     0x18
+#define SPMP_S    0x80
+#define SPMP_SHIFT 2
+
+#define SPMP_TOR   0x08
+#define SPMP_NA4   0x10
+#define SPMP_NAPOT 0x18
 
 #define IRQ_U_SOFT   0
 #define IRQ_S_SOFT   1

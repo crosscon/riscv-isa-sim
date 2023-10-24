@@ -61,6 +61,7 @@ struct mem_access_info_t {
 };
 
 void throw_access_exception(bool virt, reg_t addr, access_type type);
+void throw_spmp_access_exception(bool virt, reg_t addr, access_type type);
 
 // this class implements a processor's port into the virtual memory system.
 // an MMU and instruction cache are maintained for simulator performance.
@@ -431,9 +432,8 @@ private:
   {
     const size_t ptesize = sizeof(T);
 
-    // TODO: Is this check appropriate.
     if (!spmp_ok(pte_paddr, ptesize, LOAD, PRV_S))
-      throw_access_exception(virt, addr, trap_type);
+      throw_spmp_access_exception(virt, addr, trap_type);
     if (!pmp_ok(pte_paddr, ptesize, LOAD, PRV_S))
       throw_access_exception(virt, addr, trap_type);
 
@@ -451,9 +451,8 @@ private:
   {
     const size_t ptesize = sizeof(T);
 
-    // TODO: Is this check appropriate.
     if (!spmp_ok(pte_paddr, ptesize, STORE, PRV_S))
-      throw_access_exception(virt, addr, trap_type);
+      throw_spmp_access_exception(virt, addr, trap_type);
     if (!pmp_ok(pte_paddr, ptesize, STORE, PRV_S))
       throw_access_exception(virt, addr, trap_type);
 

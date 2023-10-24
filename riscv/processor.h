@@ -151,6 +151,8 @@ struct state_t
 
   static const int max_pmp = 64;
   pmpaddr_csr_t_p pmpaddr[max_pmp];
+  
+  static const int max_spmp = 64;
   spmpaddr_csr_t_p spmpaddr[max_pmp];
 
   float_csr_t_p fflags;
@@ -300,7 +302,9 @@ public:
   void trigger_updated(const std::vector<triggers::trigger_t *> &triggers);
 
   void set_pmp_num(reg_t pmp_num);
+  void set_spmp_num(reg_t pmp_num);
   void set_pmp_granularity(reg_t pmp_granularity);
+  void set_spmp_granularity(reg_t pmp_granularity);
   void set_mmu_capability(int cap);
 
   const char* get_symbol(uint64_t addr);
@@ -369,6 +373,10 @@ public:
   reg_t n_pmp;
   reg_t lg_pmp_granularity;
   reg_t pmp_tor_mask() { return -(reg_t(1) << (lg_pmp_granularity - PMP_SHIFT)); }
+
+  reg_t n_spmp;
+  reg_t lg_spmp_granularity;
+  reg_t spmp_tor_mask() { return -(reg_t(1) << (lg_spmp_granularity - SPMP_SHIFT)); }
 
   vectorUnit_t VU;
   triggers::module_t TM;

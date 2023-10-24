@@ -65,6 +65,10 @@ processor_t::processor_t(const isa_parser_t *isa, const cfg_t *cfg,
 
   set_pmp_granularity(1 << PMP_SHIFT);
   set_pmp_num(cfg->pmpregions);
+  
+  set_spmp_granularity(1 << PMP_SHIFT);
+  // TODO: Should be read as a separate configuration parameter.
+  set_spmp_num(cfg->pmpregions);
 
   if (isa->get_max_xlen() == 32)
     set_mmu_capability(IMPL_MMU_SV32);
@@ -637,14 +641,14 @@ void processor_t::reset()
     put_csr(CSR_PMPCFG0, PMP_R | PMP_W | PMP_X | PMP_NAPOT);
   }
 
-  //// TODO: Using n_pmp.
-  //if (n_pmp > 0) {
+  // TODO: How to handle this?
+  //if (n_spmp > 0) {
   //  // For backwards compatibility with software that is unaware of SPMP,
   //  // initialize SPMP to permit unprivileged access to all of memory in U-mode.
   //  // (Note that, S-mode can access any memory by default if no matching
   //  // entries are found.)
   //  put_csr(CSR_SPMPADDR0, ~reg_t(0));
-  //  put_csr(CSR_SPMPCFG0, PMP_R | PMP_W | PMP_X | PMP_NAPOT);
+  //  put_csr(CSR_SPMPCFG0, SPMP_R | SPMP_W | SPMP_X | SPMP_NAPOT);
   //}
 
   for (auto e : custom_extensions) // reset any extensions
@@ -684,6 +688,16 @@ void processor_t::set_pmp_num(reg_t n)
   n_pmp = n;
 }
 
+void processor_t::set_spmp_num(reg_t n)
+{
+  // check the number of spmp is in a reasonable range
+  if (n > state.max_spmp) {
+    fprintf(stderr, "error: number of SPMP regions requested (%" PRIu64 ") exceeds maximum (%d)\n", n, state.max_spmp);
+    abort();
+  }
+  n_spmp = n;
+}
+
 void processor_t::set_pmp_granularity(reg_t gran)
 {
   // check the pmp granularity is set from dtb(!=0) and is power of 2
@@ -694,6 +708,18 @@ void processor_t::set_pmp_granularity(reg_t gran)
   }
 
   lg_pmp_granularity = ctz(gran);
+}
+
+void processor_t::set_spmp_granularity(reg_t gran)
+{
+  // check the spmp granularity is set from dtb(!=0) and is power of 2
+  unsigned min = 1 << SPMP_SHIFT;
+  if (gran < min || (gran & (gran - 1)) != 0) {
+    fprintf(stderr, "error: SPMP granularity (%" PRIu64 ") must be a power of two and at least %u\n", gran, min);
+    abort();
+  }
+
+  lg_spmp_granularity = ctz(gran);
 }
 
 void processor_t::set_mmu_capability(int cap)

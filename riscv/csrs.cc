@@ -288,35 +288,31 @@ spmpaddr_csr_t::spmpaddr_csr_t(processor_t* const proc, const reg_t addr):
 
 void spmpaddr_csr_t::verify_permissions(insn_t insn, bool write) const {
   csr_t::verify_permissions(insn, write);
-  // TODO: We are using n_pmp variable.
-  // If n_pmp is zero, that means pmp is not implemented hence raise
+  // If n_spmp is zero, that means spmp is not implemented hence raise
   // trap if it tries to access the csr. I would prefer to implement
   // this by not instantiating any pmpaddr_csr_t for these regs, but
-  // n_pmp can change after reset() is run.
-  if (proc->n_pmp == 0)
+  // n_spmp can change after reset() is run.
+  if (proc->n_spmp == 0)
     throw trap_illegal_instruction(insn.bits());
 }
 
 reg_t spmpaddr_csr_t::read() const noexcept {
-  // TODO: We are using pmp_tor_mask function.
-  if ((cfg & PMP_A) >= PMP_NAPOT)
-    return val | (~proc->pmp_tor_mask() >> 1);
-  return val & proc->pmp_tor_mask();
+  if ((cfg & SPMP_A) >= SPMP_NAPOT)
+    return val | (~proc->spmp_tor_mask() >> 1);
+  return val & proc->spmp_tor_mask();
 }
 
 bool spmpaddr_csr_t::unlogged_write(const reg_t val) noexcept {
-  // TODO: We are using n_pmp variable.
   // If no SPMPs are configured, disallow access to all. Otherwise,
   // allow access to all, but unimplemented ones are hardwired to
   // zero. Note that n_pmp can change after reset(); otherwise I would
   // implement this in state_t::reset() by instantiating the correct
   // number of spmpaddr_csr_t.
-  if (proc->n_pmp == 0)
+  if (proc->n_spmp == 0)
     return false;
 
-  // TODO: Using n_pmp variable.
-  if (pmpidx < proc->n_pmp) {
-    this->val = val & ((reg_t(1) << (MAX_PADDR_BITS - PMP_SHIFT)) - 1); 
+  if (pmpidx < proc->n_spmp) {
+    this->val = val & ((reg_t(1) << (MAX_PADDR_BITS - SPMP_SHIFT)) - 1); 
   } else {
     return false;
   }
@@ -325,8 +321,7 @@ bool spmpaddr_csr_t::unlogged_write(const reg_t val) noexcept {
 }
 
 reg_t spmpaddr_csr_t::tor_paddr() const noexcept {
-  // TODO: Using pmp_tor_mask and PMP_x.
-  return (val & proc->pmp_tor_mask()) << PMP_SHIFT;
+  return (val & proc->spmp_tor_mask()) << SPMP_SHIFT;
 }
 
 reg_t spmpaddr_csr_t::tor_base_paddr() const noexcept {
@@ -335,16 +330,14 @@ reg_t spmpaddr_csr_t::tor_base_paddr() const noexcept {
 }
 
 reg_t spmpaddr_csr_t::napot_mask() const noexcept {
-  // TODO: Using pmp_tor_mask and PMP_x.
-  bool is_na4 = (cfg & PMP_A) == PMP_NA4;
-  reg_t mask = (val << 1) | (!is_na4) | ~proc->pmp_tor_mask();
-  return ~(mask & ~(mask + 1)) << PMP_SHIFT;
+  bool is_na4 = (cfg & SPMP_A) == SPMP_NA4;
+  reg_t mask = (val << 1) | (!is_na4) | ~proc->spmp_tor_mask();
+  return ~(mask & ~(mask + 1)) << SPMP_SHIFT;
 }
 
 bool spmpaddr_csr_t::match4(reg_t addr) const noexcept {
-  // TODO: Using PMP_x.
-  if ((cfg & PMP_A) == 0) return false;
-  bool is_tor = (cfg & PMP_A) == PMP_TOR;
+  if ((cfg & SPMP_A) == 0) return false;
+  bool is_tor = (cfg & SPMP_A) == SPMP_TOR;
   if (is_tor) {
     //fprintf(stderr, "base = 0x%lx, addr = 0x%lx, next = 0x%lx\n", tor_base_paddr(), addr, tor_paddr());
     return tor_base_paddr() <= addr && addr < tor_paddr();
@@ -359,9 +352,9 @@ bool spmpaddr_csr_t::subset_match(reg_t addr, reg_t len) const noexcept {
   reg_t base = tor_base_paddr();
   reg_t tor = tor_paddr();
 
-  if ((cfg & PMP_A) == 0) return false;
+  if ((cfg & SPMP_A) == 0) return false;
 
-  bool is_tor = (cfg & PMP_A) == PMP_TOR;
+  bool is_tor = (cfg & SPMP_A) == SPMP_TOR;
   bool begins_after_lower = addr >= base;
   bool begins_after_upper = addr >= tor;
   bool ends_before_lower = (addr & -len) < (base & -len);
@@ -377,9 +370,9 @@ bool spmpaddr_csr_t::subset_match(reg_t addr, reg_t len) const noexcept {
 
 bool spmpaddr_csr_t::access_ok(access_type type, reg_t mode, bool sstatus_sum) const noexcept  {
   
-  const bool cfgx = cfg & PMP_X;
-  const bool cfgw = cfg & PMP_W;
-  const bool cfgr = cfg & PMP_R;
+  const bool cfgx = cfg & SPMP_X;
+  const bool cfgw = cfg & SPMP_W;
+  const bool cfgr = cfg & SPMP_R;
   const bool cfgs = cfg & SPMP_S;
 
   const bool mmode = mode == PRV_M;
@@ -398,9 +391,6 @@ bool spmpaddr_csr_t::access_ok(access_type type, reg_t mode, bool sstatus_sum) c
   if (cfgs) {
     // S-mode-only
 
-    // TODO: What to do when a configuration is reserved?
-    //  As far as I can see, the pmpcfgx register should never have the
-    //  reserved value because it is WARL.
     const bool reserved = !cfgr && !cfgw && !cfgx;
     if (reserved) {
       return false;
@@ -465,49 +455,44 @@ spmpcfg_csr_t::spmpcfg_csr_t(processor_t* const proc, const reg_t addr):
 
 void spmpcfg_csr_t::verify_permissions(insn_t insn, bool write) const {
   csr_t::verify_permissions(insn, write);
-  // TODO: Currently we use n_pmp to set the number of SPMPs. We should use a separate n_spmp variable.
-  // If n_pmp is zero, that means spmp is not implemented hence raise
+  // If n_spmp is zero, that means spmp is not implemented hence raise
   // trap if it tries to access the csr. I would prefer to implement
-  // this by not instantiating any pmpcfg_csr_t for these regs, but
-  // n_pmp can change after reset() is run.
-  if (proc->n_pmp == 0)
+  // this by not instantiating any spmpcfg_csr_t for these regs, but
+  // n_spmp can change after reset() is run.
+  if (proc->n_spmp == 0)
     throw trap_illegal_instruction(insn.bits());
 }
 
 reg_t spmpcfg_csr_t::read() const noexcept {
   reg_t cfg_res = 0;
-  // TODO: We are using max_pmp variable.
-  for (size_t i0 = (address - CSR_SPMPCFG0) * 4, i = i0; i < i0 + proc->get_xlen() / 8 && i < state->max_pmp; i++)
+  for (size_t i0 = (address - CSR_SPMPCFG0) * 4, i = i0; i < i0 + proc->get_xlen() / 8 && i < state->max_spmp; i++)
     cfg_res |= reg_t(state->spmpaddr[i]->cfg) << (8 * (i - i0));
   return cfg_res;
 }
 
 bool spmpcfg_csr_t::unlogged_write(const reg_t val) noexcept {
-  // TODO: We are using n_pmp variable.
-  if (proc->n_pmp == 0)
+  if (proc->n_spmp == 0)
     return false;
 
   bool write_success = false;
 
   for (size_t i0 = (address - CSR_SPMPCFG0) * 4, i = i0; i < i0 + proc->get_xlen() / 8; i++) {
-    if (i < proc->n_pmp) {
-      // TODO: Check if there are any other restrictions when writing to spmpcfgx registers.
+    if (i < proc->n_spmp) {
 
-      // TODO: We are using PMP_x declarations.
-      uint8_t cfg = (val >> (8 * (i - i0))) & (PMP_R | PMP_W | PMP_X | PMP_A | PMP_L);
+      uint8_t cfg = (val >> (8 * (i - i0))) & (SPMP_R | SPMP_W | SPMP_X | SPMP_A | SPMP_S);
 
       // Disallow A=NA4 when granularity > 4
-      if (proc->lg_pmp_granularity != PMP_SHIFT && (cfg & PMP_A) == PMP_NA4)
-        cfg |= PMP_NAPOT;
+      if (proc->lg_spmp_granularity != SPMP_SHIFT && (cfg & SPMP_A) == SPMP_NA4)
+        cfg |= SPMP_NAPOT;
 
-      const bool cfgx = cfg & PMP_X;
-      const bool cfgw = cfg & PMP_W;
-      const bool cfgr = cfg & PMP_R;
+      const bool cfgx = cfg & SPMP_X;
+      const bool cfgw = cfg & SPMP_W;
+      const bool cfgr = cfg & SPMP_R;
       const bool cfgs = cfg & SPMP_S;
       const bool reserved = !cfgr && !cfgw && !cfgx;
-      if ((cfg & PMP_A) != 0 && reserved) {
-        // TODO: Is it OK to set it to read only?
-        cfg |= PMP_R;
+      if ((cfg & SPMP_A) && cfgs && reserved) {
+        // If reserved configuration is written to the entry's register, the entry is disabled.
+        cfg = 0x0;
       }
 
       state->spmpaddr[i]->cfg = cfg;
@@ -546,7 +531,6 @@ bool mseccfg_csr_t::unlogged_write(const reg_t val) noexcept {
   if (proc->n_pmp == 0)
     return false;
 
-  // TODO: Figure out what to do here for SPMP case. Related to the PMP enhancement extension (i.e. Smepmp extension).
   // pmpcfg.L is 1 in any rule or entry (including disabled entries)
   const bool pmplock_recorded = std::any_of(state->pmpaddr, state->pmpaddr + proc->n_pmp,
           [](const pmpaddr_csr_t_p & c) { return c->is_locked(); } );

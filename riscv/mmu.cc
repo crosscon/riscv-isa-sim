@@ -5,6 +5,7 @@
 #include "arith.h"
 #include "simif.h"
 #include "processor.h"
+#include "trap.h"
 #include <iostream>
 #include <ostream>
 
@@ -54,6 +55,16 @@ void throw_access_exception(bool virt, reg_t addr, access_type type)
   }
 }
 
+void throw_spmp_access_exception(bool virt, reg_t addr, access_type type)
+{
+  switch (type) {
+    case FETCH: throw trap_instruction_page_fault(virt, addr, 0, 0);
+    case LOAD: throw trap_load_page_fault(virt, addr, 0, 0);
+    case STORE: throw trap_store_page_fault(virt, addr, 0, 0);
+    default: abort();
+  }
+}
+
 reg_t mmu_t::translate(mem_access_info_t access_info, reg_t len)
 {
   //fprintf(stderr, "Entering translate ... addr = 0x%lx, type = %u, len = 0x%lx\n",
@@ -69,7 +80,7 @@ reg_t mmu_t::translate(mem_access_info_t access_info, reg_t len)
 
   reg_t paddr = walk(access_info) | (addr & (PGSIZE-1));
   if (!spmp_ok(paddr, len, type, mode))
-    throw_access_exception(virt, addr, type);
+    throw_spmp_access_exception(virt, addr, type);
   if (!pmp_ok(paddr, len, type, mode))
     throw_access_exception(virt, addr, type);
   return paddr;
@@ -381,6 +392,7 @@ bool mmu_t::pmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode)
 }
 
 bool mmu_t::spmp_enabled() {
+  // SPMP should only be enabled when satp.mod = Bare.
   const bool satp = proc->state.satp->read();
   const unsigned xlen = proc->get_const_xlen();
   return xlen == 32 ?
@@ -390,16 +402,13 @@ bool mmu_t::spmp_enabled() {
 
 bool mmu_t::spmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode)
 {
-  // TODO: Using n_pmp.
-  if (!proc || proc->n_pmp == 0)
+  if (!proc || proc->n_spmp == 0)
     return true;
 
-  if (!spmp_enabled()) {
-    fprintf(stderr, "SPMP is disabled.\n");
+  if (!spmp_enabled())
     return true;
-  }
 
-  for (size_t i = 0; i < proc->n_pmp; i++) {
+  for (size_t i = 0; i < proc->n_spmp; i++) {
     // Check each 4-byte sector of the access
     bool any_match = false;
     bool all_match = true;
@@ -434,7 +443,7 @@ reg_t mmu_t::pmp_homogeneous(reg_t addr, reg_t len)
   if (!proc)
     return true;
 
-  for (size_t i = 0; i < proc->n_pmp; i++)
+  for (size_t i = 0; i < proc->n_spmp; i++)
     if (proc->state.pmpaddr[i]->subset_match(addr, len))
       return false;
 
@@ -452,7 +461,7 @@ reg_t mmu_t::spmp_homogeneous(reg_t addr, reg_t len)
   if (!spmp_enabled())
     return true;
 
-  for (size_t i = 0; i < proc->n_pmp; i++)
+  for (size_t i = 0; i < proc->n_spmp; i++)
     if (proc->state.spmpaddr[i]->subset_match(addr, len))
       return false;
 
