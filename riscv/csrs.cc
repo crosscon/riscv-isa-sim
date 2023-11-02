@@ -279,11 +279,11 @@ bool pmpcfg_csr_t::unlogged_write(const reg_t val) noexcept {
 }
 
 // implement class spmpaddr_csr_t
-spmpaddr_csr_t::spmpaddr_csr_t(processor_t* const proc, const reg_t addr):
+spmpaddr_csr_t::spmpaddr_csr_t(processor_t* const proc, const reg_t addr, const size_t pmpidx):
   csr_t(proc, addr),
   val(0),
   cfg(0),
-  pmpidx(address - CSR_SPMPADDR0) {
+  pmpidx(pmpidx) {
 }
 
 void spmpaddr_csr_t::verify_permissions(insn_t insn, bool write) const {
@@ -466,7 +466,7 @@ void spmpcfg_csr_t::verify_permissions(insn_t insn, bool write) const {
 reg_t spmpcfg_csr_t::read() const noexcept {
   reg_t cfg_res = 0;
   for (size_t i0 = (address - CSR_SPMPCFG0) * 4, i = i0; i < i0 + proc->get_xlen() / 8 && i < state->max_spmp; i++)
-    cfg_res |= reg_t(state->spmpaddr[i]->cfg) << (8 * (i - i0));
+    cfg_res |= reg_t(state->spmpaddr[i]->read_cfg()) << (8 * (i - i0));
   return cfg_res;
 }
 
@@ -495,7 +495,7 @@ bool spmpcfg_csr_t::unlogged_write(const reg_t val) noexcept {
         cfg = 0x0;
       }
 
-      state->spmpaddr[i]->cfg = cfg;
+      state->spmpaddr[i]->write_cfg(cfg);
 
       write_success = true;
     }
@@ -572,6 +572,64 @@ bool virtualized_csr_t::unlogged_write(const reg_t val) noexcept {
   else
     orig_csr->write(val);
   return false; // virt_csr or orig_csr has already logged
+}
+
+// implementing class virtualized_spmpaddr_csr_t
+virtualized_spmpaddr_csr_t::virtualized_spmpaddr_csr_t(processor_t* const proc, spmpaddr_csr_t_p orig, spmpaddr_csr_t_p virt):
+  virtualized_csr_t(proc, orig, virt),
+  virt_spmpaddr(virt),
+  orig_spmpaddr(orig) {
+}
+
+void virtualized_spmpaddr_csr_t::verify_permissions(insn_t insn, bool write) const {
+  virtualized_csr_t::verify_permissions(insn, write);
+
+  if (state->v)
+    virt_spmpaddr->verify_permissions(insn, write);
+  else
+    orig_spmpaddr->verify_permissions(insn, write);
+}
+
+bool virtualized_spmpaddr_csr_t::match4(reg_t addr) const noexcept {
+  if (state->v)
+    virt_spmpaddr->match4(addr);
+  else
+    orig_spmpaddr->match4(addr);
+}
+
+bool virtualized_spmpaddr_csr_t::subset_match(reg_t addr, reg_t len) const noexcept {
+  if (state->v)
+    virt_spmpaddr->subset_match(addr, len);
+  else
+    orig_spmpaddr->subset_match(addr, len);
+}
+
+bool virtualized_spmpaddr_csr_t::access_ok(access_type type, reg_t mode, bool sstatus_sum) const noexcept {
+  if (state->v)
+    virt_spmpaddr->access_ok(type, mode, sstatus_sum);
+  else
+    orig_spmpaddr->access_ok(type, mode, sstatus_sum);
+}
+
+reg_t virtualized_spmpaddr_csr_t::tor_paddr() const noexcept {
+  if (state->v)
+    virt_spmpaddr->tor_paddr();
+  else
+    orig_spmpaddr->tor_paddr();
+}
+
+uint8_t virtualized_spmpaddr_csr_t::read_cfg() const noexcept {
+  if (state->v)
+    virt_spmpaddr->cfg;
+  else
+    orig_spmpaddr->cfg;
+}
+
+void virtualized_spmpaddr_csr_t::write_cfg(const uint8_t cfg) noexcept {
+  if (state->v)
+    virt_spmpaddr->cfg = cfg;
+  else
+    orig_spmpaddr->cfg = cfg;
 }
 
 // implement class epc_csr_t

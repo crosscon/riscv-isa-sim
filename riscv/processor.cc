@@ -440,7 +440,9 @@ void state_t::reset(processor_t* const proc, reg_t max_isa)
   }
 
   for (int i = 0; i < max_pmp; ++i) {
-    csrmap[CSR_SPMPADDR0 + i] = spmpaddr[i] = std::make_shared<spmpaddr_csr_t>(proc, CSR_SPMPADDR0 + i);
+    auto nonvirtual_spmpaddr = std::make_shared<spmpaddr_csr_t>(proc, CSR_SPMPADDR0 + i, i);
+    csrmap[CSR_VSPMPADDR0 + i] = vspmpaddr[i] = std::make_shared<spmpaddr_csr_t>(proc, CSR_VSPMPADDR0 + i, i);
+    csrmap[CSR_SPMPADDR0 + i] = spmpaddr[i] = std::make_shared<virtualized_spmpaddr_csr_t>(proc, nonvirtual_spmpaddr, vspmpaddr[i]);
   }
   for (int i = 0; i < max_pmp; i += xlen / 8) {
     reg_t addr = CSR_SPMPCFG0 + i / 4;

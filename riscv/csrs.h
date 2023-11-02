@@ -144,7 +144,7 @@ class pmpcfg_csr_t: public csr_t {
 
 class spmpaddr_csr_t: public csr_t {
  public:
-  spmpaddr_csr_t(processor_t* const proc, const reg_t addr);
+  spmpaddr_csr_t(processor_t* const proc, const reg_t addr, const size_t pmpidx);
   virtual void verify_permissions(insn_t insn, bool write) const override;
   virtual reg_t read() const noexcept override;
 
@@ -174,8 +174,10 @@ class spmpaddr_csr_t: public csr_t {
   reg_t napot_mask() const noexcept;
 
   bool next_locked_and_tor() const noexcept;
+  
+  friend class virtualized_spmpaddr_csr_t; // so that it can access tor_paddr
+  
   reg_t val;
-  friend class spmpcfg_csr_t;  // so he can access cfg
   uint8_t cfg;
   const size_t pmpidx;
 };
@@ -187,6 +189,7 @@ class spmpcfg_csr_t: public csr_t {
   spmpcfg_csr_t(processor_t* const proc, const reg_t addr);
   virtual void verify_permissions(insn_t insn, bool write) const override;
   virtual reg_t read() const noexcept override;
+  
  protected:
   virtual bool unlogged_write(const reg_t val) noexcept override;
 };
@@ -227,6 +230,31 @@ class virtualized_csr_t: public csr_t {
 };
 
 typedef std::shared_ptr<virtualized_csr_t> virtualized_csr_t_p;
+
+// VSPMP related registers
+
+class virtualized_spmpaddr_csr_t: public virtualized_csr_t {
+ public:
+  virtualized_spmpaddr_csr_t(processor_t* const proc, spmpaddr_csr_t_p orig, spmpaddr_csr_t_p virt);
+  virtual void verify_permissions(insn_t insn, bool write) const override;
+  bool match4(reg_t addr) const noexcept;
+  bool subset_match(reg_t addr, reg_t len) const noexcept;
+  bool access_ok(access_type type, reg_t mode, bool sstatus_sum) const noexcept;
+  
+ private:
+  friend class spmpcfg_csr_t;
+  friend class spmpaddr_csr_t;
+
+  reg_t tor_paddr() const noexcept;
+
+  uint8_t read_cfg() const noexcept;
+  void write_cfg(const uint8_t cfg) noexcept;
+
+  spmpaddr_csr_t_p virt_spmpaddr;
+  spmpaddr_csr_t_p orig_spmpaddr;
+};
+
+typedef std::shared_ptr<virtualized_spmpaddr_csr_t> virtualized_spmpaddr_csr_t_p;
 
 // For mepc, sepc, and vsepc
 class epc_csr_t: public csr_t {

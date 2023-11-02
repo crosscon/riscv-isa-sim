@@ -1,6 +1,7 @@
 // See LICENSE for license details.
 
 #include "config.h"
+#include "decode.h"
 #include "mmu.h"
 #include "arith.h"
 #include "simif.h"
@@ -348,6 +349,8 @@ tlb_entry_t mmu_t::refill_tlb(reg_t vaddr, reg_t paddr, char* host_addr, access_
       (check_triggers_store && type == STORE))
     expected_tag |= TLB_CHECK_TRIGGERS;
 
+  // Even when satp.mode == Bare, the TLB is used. Therefore, we need to check
+  // if memory access was homogeneous according to SPMP rules.
   if (spmp_homogeneous(paddr & ~reg_t(PGSIZE - 1), PGSIZE) &&
       pmp_homogeneous(paddr & ~reg_t(PGSIZE - 1), PGSIZE)) {
     if (type == FETCH) tlb_insn_tag[idx] = expected_tag;
@@ -393,11 +396,14 @@ bool mmu_t::pmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode)
 
 bool mmu_t::spmp_enabled() {
   // SPMP should only be enabled when satp.mod = Bare.
-  const bool satp = proc->state.satp->read();
-  const unsigned xlen = proc->get_const_xlen();
-  return xlen == 32 ?
+  const reg_t satp = proc->state.satp->read();
+  const unsigned int xlen = proc->get_const_xlen();
+
+  const auto e = xlen == 32 ?
       (get_field(satp, SATP32_MODE) == SATP_MODE_OFF) :
       (get_field(satp, SATP64_MODE) == SATP_MODE_OFF);
+  //fprintf(stderr, "spmp_enabled = %d, satp = 0x%lx, xlen = %d\n", e, satp, xlen);
+  return e;
 }
 
 bool mmu_t::spmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode)
@@ -423,8 +429,6 @@ bool mmu_t::spmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode)
       // If the PMP matches only a strict subset of the access, fail it
       if (!all_match)
         return false;
-
-      //fprintf(stderr, "Match found. i = %lu\n",i);
 
       const bool sstatus_sum = proc->state.sstatus->read() & SSTATUS_SUM;
       return proc->state.spmpaddr[i]->access_ok(type, mode, sstatus_sum);
