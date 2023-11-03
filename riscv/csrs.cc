@@ -41,6 +41,7 @@ void csr_t::verify_permissions(insn_t insn, bool write) const {
 
   if (write && csr_read_only)
     throw trap_illegal_instruction(insn.bits());
+  
   if (priv < csr_priv) {
     if (state->v && csr_priv <= PRV_HS)
       throw trap_virtual_instruction(insn.bits());
@@ -308,14 +309,15 @@ bool spmpaddr_csr_t::unlogged_write(const reg_t val) noexcept {
   // zero. Note that n_pmp can change after reset(); otherwise I would
   // implement this in state_t::reset() by instantiating the correct
   // number of spmpaddr_csr_t.
+
   if (proc->n_spmp == 0)
     return false;
 
   if (pmpidx < proc->n_spmp) {
     this->val = val & ((reg_t(1) << (MAX_PADDR_BITS - SPMP_SHIFT)) - 1); 
-  } else {
+  } else    
     return false;
-  }
+  
   proc->get_mmu()->flush_tlb();
   return true;
 }
@@ -393,7 +395,9 @@ bool spmpaddr_csr_t::access_ok(access_type type, reg_t mode, bool sstatus_sum) c
 
     const bool reserved = !cfgr && !cfgw && !cfgx;
     if (reserved) {
-      return false;
+      // The reserved SRWX=1000 encoding is used to mark a shared read/write/execute region for now.
+      // This enables backward compatibility.
+      return true;
     }
 
     const bool shr_RO = cfgr && cfgw && cfgx;
@@ -465,6 +469,7 @@ void spmpcfg_csr_t::verify_permissions(insn_t insn, bool write) const {
 
 reg_t spmpcfg_csr_t::read() const noexcept {
   reg_t cfg_res = 0;
+  // TODO: Because of the virtualization CSR_SPMPCFG0 should not be used.
   for (size_t i0 = (address - CSR_SPMPCFG0) * 4, i = i0; i < i0 + proc->get_xlen() / 8 && i < state->max_spmp; i++)
     cfg_res |= reg_t(state->spmpaddr[i]->read_cfg()) << (8 * (i - i0));
   return cfg_res;
@@ -485,15 +490,18 @@ bool spmpcfg_csr_t::unlogged_write(const reg_t val) noexcept {
       if (proc->lg_spmp_granularity != SPMP_SHIFT && (cfg & SPMP_A) == SPMP_NA4)
         cfg |= SPMP_NAPOT;
 
-      const bool cfgx = cfg & SPMP_X;
-      const bool cfgw = cfg & SPMP_W;
-      const bool cfgr = cfg & SPMP_R;
-      const bool cfgs = cfg & SPMP_S;
-      const bool reserved = !cfgr && !cfgw && !cfgx;
-      if ((cfg & SPMP_A) && cfgs && reserved) {
-        // If reserved configuration is written to the entry's register, the entry is disabled.
-        cfg = 0x0;
-      }
+      
+      // The reserved SRWX=1000 encoding is used to mark a shared read/write/execute region for now.
+      // Therefore, the 1000 is a valid value. This enables backward compatibility.
+      //const bool cfgx = cfg & SPMP_X;
+      //const bool cfgw = cfg & SPMP_W;
+      //const bool cfgr = cfg & SPMP_R;
+      //const bool cfgs = cfg & SPMP_S;
+      //const bool reserved = !cfgr && !cfgw && !cfgx;
+      //if ((cfg & SPMP_A) && cfgs && reserved) {
+      //  // If reserved configuration is written to the entry's register, the entry is disabled.
+      //  cfg = 0x0;
+      //}
 
       state->spmpaddr[i]->write_cfg(cfg);
 
@@ -511,6 +519,7 @@ mseccfg_csr_t::mseccfg_csr_t(processor_t* const proc, const reg_t addr):
 
 void mseccfg_csr_t::verify_permissions(insn_t insn, bool write) const {
   basic_csr_t::verify_permissions(insn, write);
+  
   if (!proc->extension_enabled(EXT_SMEPMP))
     throw trap_illegal_instruction(insn.bits());
 }
@@ -581,48 +590,39 @@ virtualized_spmpaddr_csr_t::virtualized_spmpaddr_csr_t(processor_t* const proc, 
   orig_spmpaddr(orig) {
 }
 
-void virtualized_spmpaddr_csr_t::verify_permissions(insn_t insn, bool write) const {
-  virtualized_csr_t::verify_permissions(insn, write);
-
-  if (state->v)
-    virt_spmpaddr->verify_permissions(insn, write);
-  else
-    orig_spmpaddr->verify_permissions(insn, write);
-}
-
 bool virtualized_spmpaddr_csr_t::match4(reg_t addr) const noexcept {
   if (state->v)
-    virt_spmpaddr->match4(addr);
+    return virt_spmpaddr->match4(addr);
   else
-    orig_spmpaddr->match4(addr);
+    return orig_spmpaddr->match4(addr);
 }
 
 bool virtualized_spmpaddr_csr_t::subset_match(reg_t addr, reg_t len) const noexcept {
   if (state->v)
-    virt_spmpaddr->subset_match(addr, len);
+    return virt_spmpaddr->subset_match(addr, len);
   else
-    orig_spmpaddr->subset_match(addr, len);
+    return orig_spmpaddr->subset_match(addr, len);
 }
 
 bool virtualized_spmpaddr_csr_t::access_ok(access_type type, reg_t mode, bool sstatus_sum) const noexcept {
   if (state->v)
-    virt_spmpaddr->access_ok(type, mode, sstatus_sum);
+    return virt_spmpaddr->access_ok(type, mode, sstatus_sum);
   else
-    orig_spmpaddr->access_ok(type, mode, sstatus_sum);
+    return orig_spmpaddr->access_ok(type, mode, sstatus_sum);
 }
 
 reg_t virtualized_spmpaddr_csr_t::tor_paddr() const noexcept {
   if (state->v)
-    virt_spmpaddr->tor_paddr();
+    return virt_spmpaddr->tor_paddr();
   else
-    orig_spmpaddr->tor_paddr();
+    return orig_spmpaddr->tor_paddr();
 }
 
 uint8_t virtualized_spmpaddr_csr_t::read_cfg() const noexcept {
   if (state->v)
-    virt_spmpaddr->cfg;
+    return virt_spmpaddr->cfg;
   else
-    orig_spmpaddr->cfg;
+    return orig_spmpaddr->cfg;
 }
 
 void virtualized_spmpaddr_csr_t::write_cfg(const uint8_t cfg) noexcept {

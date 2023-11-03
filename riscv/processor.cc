@@ -643,15 +643,12 @@ void processor_t::reset()
     put_csr(CSR_PMPCFG0, PMP_R | PMP_W | PMP_X | PMP_NAPOT);
   }
 
-  // TODO: How to handle this?
-  //if (n_spmp > 0) {
-  //  // For backwards compatibility with software that is unaware of SPMP,
-  //  // initialize SPMP to permit unprivileged access to all of memory in U-mode.
-  //  // (Note that, S-mode can access any memory by default if no matching
-  //  // entries are found.)
-  //  put_csr(CSR_SPMPADDR0, ~reg_t(0));
-  //  put_csr(CSR_SPMPCFG0, SPMP_R | SPMP_W | SPMP_X | SPMP_NAPOT);
-  //}
+  if (n_spmp > 0) {
+    // For backwards compatibility with software that is unaware of SPMP,
+    // initialize SPMP to permit unprivileged access to all of memory.
+    put_csr(CSR_SPMPADDR0, ~reg_t(0));
+    put_csr(CSR_SPMPCFG0, SPMP_SharedRWX | SPMP_NAPOT);
+  }
 
   for (auto e : custom_extensions) // reset any extensions
     e.second->reset();

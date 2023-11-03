@@ -173,9 +173,7 @@ class spmpaddr_csr_t: public csr_t {
   // E.g. for 4KiB region, returns 0xffffffff_fffff000.
   reg_t napot_mask() const noexcept;
 
-  bool next_locked_and_tor() const noexcept;
-  
-  friend class virtualized_spmpaddr_csr_t; // so that it can access tor_paddr
+  friend class virtualized_spmpaddr_csr_t; // so that it can access cfg
   
   reg_t val;
   uint8_t cfg;
@@ -236,7 +234,6 @@ typedef std::shared_ptr<virtualized_csr_t> virtualized_csr_t_p;
 class virtualized_spmpaddr_csr_t: public virtualized_csr_t {
  public:
   virtualized_spmpaddr_csr_t(processor_t* const proc, spmpaddr_csr_t_p orig, spmpaddr_csr_t_p virt);
-  virtual void verify_permissions(insn_t insn, bool write) const override;
   bool match4(reg_t addr) const noexcept;
   bool subset_match(reg_t addr, reg_t len) const noexcept;
   bool access_ok(access_type type, reg_t mode, bool sstatus_sum) const noexcept;

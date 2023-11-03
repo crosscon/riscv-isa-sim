@@ -297,8 +297,10 @@
 #define SPMP_W     0x02
 #define SPMP_X     0x04
 #define SPMP_A     0x18
-#define SPMP_S    0x80
+#define SPMP_S     0x80
 #define SPMP_SHIFT 2
+
+#define SPMP_SharedRWX 0x80
 
 #define SPMP_TOR   0x08
 #define SPMP_NA4   0x10
