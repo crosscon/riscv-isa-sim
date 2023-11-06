@@ -1,6 +1,7 @@
 // See LICENSE for license details.
 
 #include "arith.h"
+#include "csrs.h"
 #include "processor.h"
 #include "extension.h"
 #include "common.h"
@@ -439,14 +440,14 @@ void state_t::reset(processor_t* const proc, reg_t max_isa)
     csrmap[addr] = std::make_shared<pmpcfg_csr_t>(proc, addr);
   }
 
-  for (int i = 0; i < max_pmp; ++i) {
-    auto nonvirtual_spmpaddr = std::make_shared<spmpaddr_csr_t>(proc, CSR_SPMPADDR0 + i, i);
-    csrmap[CSR_VSPMPADDR0 + i] = vspmpaddr[i] = std::make_shared<spmpaddr_csr_t>(proc, CSR_VSPMPADDR0 + i, i);
-    csrmap[CSR_SPMPADDR0 + i] = spmpaddr[i] = std::make_shared<virtualized_spmpaddr_csr_t>(proc, nonvirtual_spmpaddr, vspmpaddr[i]);
+  for (int i = 0; i < max_spmp; ++i) {
+    nonvirtual_spmpaddr[i] = std::make_shared<spmpaddr_csr_t>(proc, CSR_SPMPADDR0 + i, i, nonvirtual_spmpaddr[i-1]);
+    csrmap[CSR_VSPMPADDR0 + i] = virtual_spmpaddr[i] = std::make_shared<spmpaddr_csr_t>(proc, CSR_VSPMPADDR0 + i, i, virtual_spmpaddr[i-1]);
+    csrmap[CSR_SPMPADDR0 + i] = spmpaddr[i] = std::make_shared<virtualized_spmpaddr_csr_t>(proc, nonvirtual_spmpaddr[i], virtual_spmpaddr[i]);
   }
-  for (int i = 0; i < max_pmp; i += xlen / 8) {
+  for (int i = 0; i < max_spmp; i += xlen / 8) {
     reg_t addr = CSR_SPMPCFG0 + i / 4;
-    csrmap[addr] = std::make_shared<spmpcfg_csr_t>(proc, addr);
+    csrmap[addr] = std::make_shared<spmpcfg_csr_t>(proc, addr, base_spmpcfg, nonvirtual_spmpaddr);
   }
 
   csrmap[CSR_FFLAGS] = fflags = std::make_shared<float_csr_t>(proc, CSR_FFLAGS, FSR_AEXC >> FSR_AEXC_SHIFT, 0);

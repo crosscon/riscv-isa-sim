@@ -153,8 +153,9 @@ struct state_t
   pmpaddr_csr_t_p pmpaddr[max_pmp];
   
   static const int max_spmp = 64;
-  virtualized_spmpaddr_csr_t_p spmpaddr[max_pmp];
-  spmpaddr_csr_t_p vspmpaddr[max_pmp];
+  virtualized_spmpaddr_csr_t_p spmpaddr[max_spmp];
+  spmpaddr_csr_t_p nonvirtual_spmpaddr[max_spmp];
+  spmpaddr_csr_t_p virtual_spmpaddr[max_spmp];
 
   float_csr_t_p fflags;
   float_csr_t_p frm;

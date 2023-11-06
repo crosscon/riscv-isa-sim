@@ -76,10 +76,13 @@ reg_t mmu_t::translate(mem_access_info_t access_info, reg_t len)
   if (!proc)
     return addr;
 
+  // TODO: Is it OK that we force both spmp and pmp checks according to the following.
   bool virt = access_info.effective_virt;
   reg_t mode = (reg_t) access_info.effective_priv;
 
   reg_t paddr = walk(access_info) | (addr & (PGSIZE-1));
+  if (!vspmp_ok(paddr, len, type, mode))
+    throw_spmp_access_exception(virt, addr, type);
   if (!spmp_ok(paddr, len, type, mode))
     throw_spmp_access_exception(virt, addr, type);
   if (!pmp_ok(paddr, len, type, mode))
@@ -349,9 +352,10 @@ tlb_entry_t mmu_t::refill_tlb(reg_t vaddr, reg_t paddr, char* host_addr, access_
       (check_triggers_store && type == STORE))
     expected_tag |= TLB_CHECK_TRIGGERS;
 
-  // Even when satp.mode == Bare, the TLB is used. Therefore, we need to check
-  // if memory access was homogeneous according to SPMP rules.
-  if (spmp_homogeneous(paddr & ~reg_t(PGSIZE - 1), PGSIZE) &&
+  // Even when satp.mode == Bare or vsatp.mode == Bare, the TLB is used.
+  // Therefore, we need to check if memory access was homogeneous according to SPMP and vSPMP rules.
+  if (vspmp_homogeneous(paddr & ~reg_t(PGSIZE - 1), PGSIZE) &&
+      spmp_homogeneous(paddr & ~reg_t(PGSIZE - 1), PGSIZE) &&
       pmp_homogeneous(paddr & ~reg_t(PGSIZE - 1), PGSIZE)) {
     if (type == FETCH) tlb_insn_tag[idx] = expected_tag;
     else if (type == STORE) tlb_store_tag[idx] = expected_tag;
@@ -402,7 +406,25 @@ bool mmu_t::spmp_enabled() {
   const auto e = xlen == 32 ?
       (get_field(satp, SATP32_MODE) == SATP_MODE_OFF) :
       (get_field(satp, SATP64_MODE) == SATP_MODE_OFF);
-  //fprintf(stderr, "spmp_enabled = %d, satp = 0x%lx, xlen = %d\n", e, satp, xlen);
+
+  return e;
+}
+
+bool mmu_t::vspmp_enabled() {
+
+  if (!proc->state.v) {
+    return false;
+  }
+
+  // TODO: Needs to be adjusted for VS.
+  // SPMP should only be enabled when satp.mod = Bare.
+  const reg_t satp = proc->state.satp->read();
+  const unsigned int xlen = proc->get_const_xlen();
+
+  const auto e = xlen == 32 ?
+      (get_field(satp, SATP32_MODE) == SATP_MODE_OFF) :
+      (get_field(satp, SATP64_MODE) == SATP_MODE_OFF);
+
   return e;
 }
 
@@ -420,7 +442,7 @@ bool mmu_t::spmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode)
     bool all_match = true;
     for (reg_t offset = 0; offset < len; offset += 1 << PMP_SHIFT) {
       reg_t cur_addr = addr + offset;
-      bool match = proc->state.spmpaddr[i]->match4(cur_addr);
+      bool match = proc->state.spmpaddr[i]->orig_spmpaddr->match4(cur_addr);
       any_match |= match;
       all_match &= match;
     }
@@ -430,8 +452,41 @@ bool mmu_t::spmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode)
       if (!all_match)
         return false;
 
-      const bool sstatus_sum = proc->state.sstatus->read() & SSTATUS_SUM;
-      return proc->state.spmpaddr[i]->access_ok(type, mode, sstatus_sum);
+      const bool sstatus_sum = proc->state.sstatus->readvirt(false) & SSTATUS_SUM;
+      return proc->state.spmpaddr[i]->orig_spmpaddr->access_ok(type, mode, sstatus_sum);
+    }
+  }
+
+  // in case matching region is not found
+  return (mode == PRV_M) || (mode == PRV_S);
+}
+
+bool mmu_t::vspmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode)
+{
+  if (!proc || proc->n_spmp == 0)
+    return true;
+
+  if (!vspmp_enabled())
+    return true;
+
+  for (size_t i = 0; i < proc->n_spmp; i++) {
+    // Check each 4-byte sector of the access
+    bool any_match = false;
+    bool all_match = true;
+    for (reg_t offset = 0; offset < len; offset += 1 << PMP_SHIFT) {
+      reg_t cur_addr = addr + offset;
+      bool match = proc->state.spmpaddr[i]->virt_spmpaddr->match4(cur_addr);
+      any_match |= match;
+      all_match &= match;
+    }
+
+    if (any_match) {
+      // If the PMP matches only a strict subset of the access, fail it
+      if (!all_match)
+        return false;
+
+      const bool sstatus_sum = proc->state.sstatus->readvirt(true) & SSTATUS_SUM;
+      return proc->state.spmpaddr[i]->virt_spmpaddr->access_ok(type, mode, sstatus_sum);
     }
   }
 
@@ -466,7 +521,25 @@ reg_t mmu_t::spmp_homogeneous(reg_t addr, reg_t len)
     return true;
 
   for (size_t i = 0; i < proc->n_spmp; i++)
-    if (proc->state.spmpaddr[i]->subset_match(addr, len))
+    if (proc->state.spmpaddr[i]->orig_spmpaddr->subset_match(addr, len))
+      return false;
+
+  return true;
+}
+
+reg_t mmu_t::vspmp_homogeneous(reg_t addr, reg_t len)
+{
+  if ((addr | len) & (len - 1))
+    abort();
+
+  if (!proc)
+    return true;
+
+  if (!vspmp_enabled())
+    return true;
+
+  for (size_t i = 0; i < proc->n_spmp; i++)
+    if (proc->state.spmpaddr[i]->orig_spmpaddr->subset_match(addr, len))
       return false;
 
   return true;

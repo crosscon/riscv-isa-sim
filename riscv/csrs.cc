@@ -88,7 +88,7 @@ pmpaddr_csr_t::pmpaddr_csr_t(processor_t* const proc, const reg_t addr):
   csr_t(proc, addr),
   val(0),
   cfg(0),
-  pmpidx(address - CSR_PMPADDR0) {
+  idx(address - CSR_PMPADDR0){
 }
 
 void pmpaddr_csr_t::verify_permissions(insn_t insn, bool write) const {
@@ -119,7 +119,7 @@ bool pmpaddr_csr_t::unlogged_write(const reg_t val) noexcept {
   const bool lock_bypass = state->mseccfg->get_rlb();
   const bool locked = !lock_bypass && (cfg & PMP_L);
 
-  if (pmpidx < proc->n_pmp && !locked && !next_locked_and_tor()) {
+  if (idx < proc->n_pmp && !locked && !next_locked_and_tor()) {
     this->val = val & ((reg_t(1) << (MAX_PADDR_BITS - PMP_SHIFT)) - 1);
   }
   else
@@ -129,10 +129,10 @@ bool pmpaddr_csr_t::unlogged_write(const reg_t val) noexcept {
 }
 
 bool pmpaddr_csr_t::next_locked_and_tor() const noexcept {
-  if (pmpidx+1 >= state->max_pmp) return false;  // this is the last entry
+  if (idx+1 >= state->max_pmp) return false;  // this is the last entry
   const bool lock_bypass = state->mseccfg->get_rlb();
-  const bool next_locked = !lock_bypass && (state->pmpaddr[pmpidx+1]->cfg & PMP_L);
-  const bool next_tor = (state->pmpaddr[pmpidx+1]->cfg & PMP_A) == PMP_TOR;
+  const bool next_locked = !lock_bypass && (state->pmpaddr[idx+1]->cfg & PMP_L);
+  const bool next_tor = (state->pmpaddr[idx+1]->cfg & PMP_A) == PMP_TOR;
   return next_locked && next_tor;
 }
 
@@ -141,8 +141,8 @@ reg_t pmpaddr_csr_t::tor_paddr() const noexcept {
 }
 
 reg_t pmpaddr_csr_t::tor_base_paddr() const noexcept {
-  if (pmpidx == 0) return 0;  // entry 0 always uses 0 as base
-  return state->pmpaddr[pmpidx-1]->tor_paddr();
+  if (idx == 0) return 0;  // entry 0 always uses 0 as base
+  return state->pmpaddr[idx-1]->tor_paddr();
 }
 
 reg_t pmpaddr_csr_t::napot_mask() const noexcept {
@@ -280,11 +280,12 @@ bool pmpcfg_csr_t::unlogged_write(const reg_t val) noexcept {
 }
 
 // implement class spmpaddr_csr_t
-spmpaddr_csr_t::spmpaddr_csr_t(processor_t* const proc, const reg_t addr, const size_t pmpidx):
+spmpaddr_csr_t::spmpaddr_csr_t(processor_t* const proc, const reg_t addr, const size_t idx, std::shared_ptr<spmpaddr_csr_t> prev_addr):
   csr_t(proc, addr),
   val(0),
   cfg(0),
-  pmpidx(pmpidx) {
+  idx(idx),
+  prev_addr(prev_addr){
 }
 
 void spmpaddr_csr_t::verify_permissions(insn_t insn, bool write) const {
@@ -306,14 +307,14 @@ reg_t spmpaddr_csr_t::read() const noexcept {
 bool spmpaddr_csr_t::unlogged_write(const reg_t val) noexcept {
   // If no SPMPs are configured, disallow access to all. Otherwise,
   // allow access to all, but unimplemented ones are hardwired to
-  // zero. Note that n_pmp can change after reset(); otherwise I would
+  // zero. Note that n_spmp can change after reset(); otherwise I would
   // implement this in state_t::reset() by instantiating the correct
   // number of spmpaddr_csr_t.
 
   if (proc->n_spmp == 0)
     return false;
 
-  if (pmpidx < proc->n_spmp) {
+  if (idx < proc->n_spmp) {
     this->val = val & ((reg_t(1) << (MAX_PADDR_BITS - SPMP_SHIFT)) - 1); 
   } else    
     return false;
@@ -327,8 +328,8 @@ reg_t spmpaddr_csr_t::tor_paddr() const noexcept {
 }
 
 reg_t spmpaddr_csr_t::tor_base_paddr() const noexcept {
-  if (pmpidx == 0) return 0;  // entry 0 always uses 0 as base
-  return state->spmpaddr[pmpidx-1]->tor_paddr();
+  if (idx == 0) return 0;  // entry 0 always uses 0 as base
+  return prev_addr->tor_paddr();
 }
 
 reg_t spmpaddr_csr_t::napot_mask() const noexcept {
@@ -340,10 +341,8 @@ reg_t spmpaddr_csr_t::napot_mask() const noexcept {
 bool spmpaddr_csr_t::match4(reg_t addr) const noexcept {
   if ((cfg & SPMP_A) == 0) return false;
   bool is_tor = (cfg & SPMP_A) == SPMP_TOR;
-  if (is_tor) {
-    //fprintf(stderr, "base = 0x%lx, addr = 0x%lx, next = 0x%lx\n", tor_base_paddr(), addr, tor_paddr());
-    return tor_base_paddr() <= addr && addr < tor_paddr();
-  }
+  if (is_tor) return tor_base_paddr() <= addr && addr < tor_paddr();
+
   // NAPOT or NA4:
   return ((addr ^ tor_paddr()) & napot_mask()) == 0;
 }
@@ -453,8 +452,11 @@ bool spmpaddr_csr_t::access_ok(access_type type, reg_t mode, bool sstatus_sum) c
 }
 
 // implement class spmpcfg_csr_t
-spmpcfg_csr_t::spmpcfg_csr_t(processor_t* const proc, const reg_t addr):
-  csr_t(proc, addr) {
+spmpcfg_csr_t::spmpcfg_csr_t(processor_t* const proc, const reg_t addr, const spmp_base_address base_addr,
+                             spmpaddr_csr_t_p* const addrs_csrs):
+  csr_t(proc, addr),
+  base_addr(base_addr),
+  addrs_csrs(addrs_csrs){
 }
 
 void spmpcfg_csr_t::verify_permissions(insn_t insn, bool write) const {
@@ -469,9 +471,10 @@ void spmpcfg_csr_t::verify_permissions(insn_t insn, bool write) const {
 
 reg_t spmpcfg_csr_t::read() const noexcept {
   reg_t cfg_res = 0;
-  // TODO: Because of the virtualization CSR_SPMPCFG0 should not be used.
-  for (size_t i0 = (address - CSR_SPMPCFG0) * 4, i = i0; i < i0 + proc->get_xlen() / 8 && i < state->max_spmp; i++)
-    cfg_res |= reg_t(state->spmpaddr[i]->read_cfg()) << (8 * (i - i0));
+  // TODO: Refactor. There is probably a nice way to store the value of the cfg and how it can be used
+  // to perform SPMP and vSPMP access checks.
+  for (size_t i0 = (address - base_addr) * 4, i = i0; i < i0 + proc->get_xlen() / 8 && i < state->max_spmp; i++)
+    cfg_res |= reg_t(addrs_csrs[i]->cfg) << (8 * (i - i0));
   return cfg_res;
 }
 
@@ -481,7 +484,7 @@ bool spmpcfg_csr_t::unlogged_write(const reg_t val) noexcept {
 
   bool write_success = false;
 
-  for (size_t i0 = (address - CSR_SPMPCFG0) * 4, i = i0; i < i0 + proc->get_xlen() / 8; i++) {
+  for (size_t i0 = (address - base_addr) * 4, i = i0; i < i0 + proc->get_xlen() / 8; i++) {
     if (i < proc->n_spmp) {
 
       uint8_t cfg = (val >> (8 * (i - i0))) & (SPMP_R | SPMP_W | SPMP_X | SPMP_A | SPMP_S);
@@ -503,7 +506,7 @@ bool spmpcfg_csr_t::unlogged_write(const reg_t val) noexcept {
       //  cfg = 0x0;
       //}
 
-      state->spmpaddr[i]->write_cfg(cfg);
+      addrs_csrs[i]->cfg = cfg;
 
       write_success = true;
     }
@@ -584,52 +587,11 @@ bool virtualized_csr_t::unlogged_write(const reg_t val) noexcept {
 }
 
 // implementing class virtualized_spmpaddr_csr_t
-virtualized_spmpaddr_csr_t::virtualized_spmpaddr_csr_t(processor_t* const proc, spmpaddr_csr_t_p orig, spmpaddr_csr_t_p virt):
+virtualized_spmpaddr_csr_t::virtualized_spmpaddr_csr_t(
+  processor_t* const proc, spmpaddr_csr_t_p orig, spmpaddr_csr_t_p virt):
   virtualized_csr_t(proc, orig, virt),
   virt_spmpaddr(virt),
   orig_spmpaddr(orig) {
-}
-
-bool virtualized_spmpaddr_csr_t::match4(reg_t addr) const noexcept {
-  if (state->v)
-    return virt_spmpaddr->match4(addr);
-  else
-    return orig_spmpaddr->match4(addr);
-}
-
-bool virtualized_spmpaddr_csr_t::subset_match(reg_t addr, reg_t len) const noexcept {
-  if (state->v)
-    return virt_spmpaddr->subset_match(addr, len);
-  else
-    return orig_spmpaddr->subset_match(addr, len);
-}
-
-bool virtualized_spmpaddr_csr_t::access_ok(access_type type, reg_t mode, bool sstatus_sum) const noexcept {
-  if (state->v)
-    return virt_spmpaddr->access_ok(type, mode, sstatus_sum);
-  else
-    return orig_spmpaddr->access_ok(type, mode, sstatus_sum);
-}
-
-reg_t virtualized_spmpaddr_csr_t::tor_paddr() const noexcept {
-  if (state->v)
-    return virt_spmpaddr->tor_paddr();
-  else
-    return orig_spmpaddr->tor_paddr();
-}
-
-uint8_t virtualized_spmpaddr_csr_t::read_cfg() const noexcept {
-  if (state->v)
-    return virt_spmpaddr->cfg;
-  else
-    return orig_spmpaddr->cfg;
-}
-
-void virtualized_spmpaddr_csr_t::write_cfg(const uint8_t cfg) noexcept {
-  if (state->v)
-    virt_spmpaddr->cfg = cfg;
-  else
-    orig_spmpaddr->cfg = cfg;
 }
 
 // implement class epc_csr_t

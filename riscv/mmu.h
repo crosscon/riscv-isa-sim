@@ -432,6 +432,8 @@ private:
   {
     const size_t ptesize = sizeof(T);
 
+    if (!vspmp_ok(pte_paddr, ptesize, LOAD, PRV_S))
+      throw_spmp_access_exception(virt, addr, trap_type);
     if (!spmp_ok(pte_paddr, ptesize, LOAD, PRV_S))
       throw_spmp_access_exception(virt, addr, trap_type);
     if (!pmp_ok(pte_paddr, ptesize, LOAD, PRV_S))
@@ -451,6 +453,8 @@ private:
   {
     const size_t ptesize = sizeof(T);
 
+    if (!vspmp_ok(pte_paddr, ptesize, STORE, PRV_S))
+      throw_spmp_access_exception(virt, addr, trap_type);
     if (!spmp_ok(pte_paddr, ptesize, STORE, PRV_S))
       throw_spmp_access_exception(virt, addr, trap_type);
     if (!pmp_ok(pte_paddr, ptesize, STORE, PRV_S))
@@ -487,9 +491,12 @@ private:
 
   reg_t pmp_homogeneous(reg_t addr, reg_t len);
   reg_t spmp_homogeneous(reg_t addr, reg_t len);
+  reg_t vspmp_homogeneous(reg_t addr, reg_t len);
   bool pmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode);
   bool spmp_enabled();
+  bool vspmp_enabled();
   bool spmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode);
+  bool vspmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode);
 
 #ifdef RISCV_ENABLE_DUAL_ENDIAN
   bool target_big_endian;
