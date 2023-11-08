@@ -83,7 +83,7 @@ reg_t mmu_t::translate(mem_access_info_t access_info, reg_t len)
   reg_t paddr = walk(access_info) | (addr & (PGSIZE-1));
   if (!vspmp_ok(paddr, len, type, mode))
     throw_spmp_access_exception(virt, addr, type);
-  if (!spmp_ok(paddr, len, type, mode))
+  if (!spmp_ok(paddr, len, type, mode,  proc->state.v))
     throw_spmp_access_exception(virt, addr, type);
   if (!pmp_ok(paddr, len, type, mode))
     throw_access_exception(virt, addr, type);
@@ -403,7 +403,7 @@ bool mmu_t::spmp_enabled() {
   const reg_t satp = proc->state.satp->read();
   const unsigned int xlen = proc->get_const_xlen();
 
-  const auto e = xlen == 32 ?
+  const bool e = xlen == 32 ?
       (get_field(satp, SATP32_MODE) == SATP_MODE_OFF) :
       (get_field(satp, SATP64_MODE) == SATP_MODE_OFF);
 
@@ -416,19 +416,18 @@ bool mmu_t::vspmp_enabled() {
     return false;
   }
 
-  // TODO: Needs to be adjusted for VS.
-  // SPMP should only be enabled when satp.mod = Bare.
-  const reg_t satp = proc->state.satp->read();
+  // SPMP should only be enabled when vsatp.mod = Bare.
+  const reg_t satp = proc->state.vsatp->read();
   const unsigned int xlen = proc->get_const_xlen();
 
-  const auto e = xlen == 32 ?
+  const bool e = xlen == 32 ?
       (get_field(satp, SATP32_MODE) == SATP_MODE_OFF) :
       (get_field(satp, SATP64_MODE) == SATP_MODE_OFF);
 
   return e;
 }
 
-bool mmu_t::spmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode)
+bool mmu_t::spmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode, const bool req_from_virt)
 {
   if (!proc || proc->n_spmp == 0)
     return true;
@@ -453,7 +452,9 @@ bool mmu_t::spmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode)
         return false;
 
       const bool sstatus_sum = proc->state.sstatus->readvirt(false) & SSTATUS_SUM;
-      return proc->state.spmpaddr[i]->orig_spmpaddr->access_ok(type, mode, sstatus_sum);
+      // TODO: Having orig_spmpaddr and using virt=true does not make a lot of sense.
+      // Maybe virt parameter should be passed to the spmpcfg_crt_t through a constructor.
+      return proc->state.spmpaddr[i]->orig_spmpaddr->access_ok(type, mode, proc->state.v, sstatus_sum);
     }
   }
 
@@ -466,8 +467,9 @@ bool mmu_t::vspmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode)
   if (!proc || proc->n_spmp == 0)
     return true;
 
-  if (!vspmp_enabled())
+  if (!vspmp_enabled()) {
     return true;
+  }
 
   for (size_t i = 0; i < proc->n_spmp; i++) {
     // Check each 4-byte sector of the access
@@ -486,7 +488,7 @@ bool mmu_t::vspmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode)
         return false;
 
       const bool sstatus_sum = proc->state.sstatus->readvirt(true) & SSTATUS_SUM;
-      return proc->state.spmpaddr[i]->virt_spmpaddr->access_ok(type, mode, sstatus_sum);
+      return proc->state.spmpaddr[i]->virt_spmpaddr->access_ok(type, mode, proc->state.v ,sstatus_sum);
     }
   }
 
@@ -539,7 +541,7 @@ reg_t mmu_t::vspmp_homogeneous(reg_t addr, reg_t len)
     return true;
 
   for (size_t i = 0; i < proc->n_spmp; i++)
-    if (proc->state.spmpaddr[i]->orig_spmpaddr->subset_match(addr, len))
+    if (proc->state.spmpaddr[i]->virt_spmpaddr->subset_match(addr, len))
       return false;
 
   return true;

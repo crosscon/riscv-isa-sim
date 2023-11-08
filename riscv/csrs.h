@@ -145,7 +145,7 @@ class pmpcfg_csr_t: public csr_t {
 class spmpaddr_csr_t: public csr_t {
  public:
   spmpaddr_csr_t(processor_t* const proc, const reg_t addr, const size_t idx,
-                 std::shared_ptr<spmpaddr_csr_t> prev_addr);
+                 std::shared_ptr<spmpaddr_csr_t> prev_addr, const bool is_vspmp_csr);
   virtual void verify_permissions(insn_t insn, bool write) const override;
   virtual reg_t read() const noexcept override;
 
@@ -156,7 +156,7 @@ class spmpaddr_csr_t: public csr_t {
   bool subset_match(reg_t addr, reg_t len) const noexcept;
 
   // Is the specified access allowed given the spmpcfg privileges?
-  bool access_ok(access_type type, reg_t mode, bool sstatus_sum) const noexcept;
+  bool access_ok(access_type type, reg_t mode, bool virt, bool sstatus_sum) const noexcept;
 
  protected:
   virtual bool unlogged_write(const reg_t val) noexcept override;
@@ -175,6 +175,7 @@ class spmpaddr_csr_t: public csr_t {
   // E.g. for 4KiB region, returns 0xffffffff_fffff000.
   reg_t napot_mask() const noexcept;
 
+  // TODO: Restrict access for spmpcfg_csr_t only to cfg.
   // To allow spmpcfg_csr_t to access cfg.
   friend class spmpcfg_csr_t;
 
@@ -183,6 +184,8 @@ class spmpaddr_csr_t: public csr_t {
   const size_t idx;
   // Previous spmpaddr cfg used to get a TOR range.
   std::shared_ptr<spmpaddr_csr_t> prev_addr;
+  // Is the class is used as a vSPMP's vspmpaddr csr?
+  const bool is_vspmp_csr;
 };
 
 typedef std::shared_ptr<spmpaddr_csr_t> spmpaddr_csr_t_p;
@@ -194,7 +197,7 @@ enum spmp_base_address : reg_t {
 
 class spmpcfg_csr_t: public csr_t {
  public:
-  // TODO: Find a better way to pass addrs_csrs.
+  // TODO: Find a better way to pass the addrs_csrs.
   spmpcfg_csr_t(processor_t* const proc, const reg_t addr, const spmp_base_address base_addr,
                 spmpaddr_csr_t_p* const addrs_csrs);
   virtual void verify_permissions(insn_t insn, bool write) const override;
@@ -209,6 +212,7 @@ class spmpcfg_csr_t: public csr_t {
   spmpaddr_csr_t_p* const addrs_csrs;
 };
 
+typedef std::shared_ptr<spmpcfg_csr_t> spmpcfg_csr_t_p;
 
 class mseccfg_csr_t: public basic_csr_t {
  public:
@@ -248,7 +252,6 @@ typedef std::shared_ptr<virtualized_csr_t> virtualized_csr_t_p;
 
 // VSPMP related registers
 
-
 // Because SPMP and vSPMP checks are done on each memory access when V=1, only read and write functions
 // use state->v to determine which set registers to use. All other functions (e.g. match4, subset_math
 // and access_ok) should be called directly though virt_spmpaddr or orig_spmpaddr.
@@ -263,6 +266,14 @@ class virtualized_spmpaddr_csr_t: public virtualized_csr_t {
 };
 
 typedef std::shared_ptr<virtualized_spmpaddr_csr_t> virtualized_spmpaddr_csr_t_p;
+
+class virtualized_spmpcfg_csr_t: public virtualized_csr_t {
+ public:
+  virtualized_spmpcfg_csr_t(processor_t* const proc, spmpcfg_csr_t_p orig, spmpcfg_csr_t_p virt);
+};
+
+typedef std::shared_ptr<virtualized_spmpcfg_csr_t> virtualized_spmpcfg_csr_t_p;
+
 
 // For mepc, sepc, and vsepc
 class epc_csr_t: public csr_t {

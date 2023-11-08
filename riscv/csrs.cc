@@ -154,7 +154,11 @@ reg_t pmpaddr_csr_t::napot_mask() const noexcept {
 bool pmpaddr_csr_t::match4(reg_t addr) const noexcept {
   if ((cfg & PMP_A) == 0) return false;
   bool is_tor = (cfg & PMP_A) == PMP_TOR;
-  if (is_tor) return tor_base_paddr() <= addr && addr < tor_paddr();
+  if (is_tor){
+//    fprintf(stderr, "pmp: tor_base_paddr() = 0x%lx, addr = 0x%lx, tor_paddr() = 0x%lx\n",
+//      tor_base_paddr(), addr, tor_paddr());
+    return tor_base_paddr() <= addr && addr < tor_paddr();
+  }
   // NAPOT or NA4:
   return ((addr ^ tor_paddr()) & napot_mask()) == 0;
 }
@@ -280,12 +284,14 @@ bool pmpcfg_csr_t::unlogged_write(const reg_t val) noexcept {
 }
 
 // implement class spmpaddr_csr_t
-spmpaddr_csr_t::spmpaddr_csr_t(processor_t* const proc, const reg_t addr, const size_t idx, std::shared_ptr<spmpaddr_csr_t> prev_addr):
+spmpaddr_csr_t::spmpaddr_csr_t(processor_t* const proc, const reg_t addr, const size_t idx,
+    std::shared_ptr<spmpaddr_csr_t> prev_addr, const bool is_vspmp_csr):
   csr_t(proc, addr),
   val(0),
   cfg(0),
   idx(idx),
-  prev_addr(prev_addr){
+  prev_addr(prev_addr),
+  is_vspmp_csr(is_vspmp_csr){
 }
 
 void spmpaddr_csr_t::verify_permissions(insn_t insn, bool write) const {
@@ -341,7 +347,11 @@ reg_t spmpaddr_csr_t::napot_mask() const noexcept {
 bool spmpaddr_csr_t::match4(reg_t addr) const noexcept {
   if ((cfg & SPMP_A) == 0) return false;
   bool is_tor = (cfg & SPMP_A) == SPMP_TOR;
-  if (is_tor) return tor_base_paddr() <= addr && addr < tor_paddr();
+  if (is_tor) {
+//    fprintf(stderr, "spmp: tor_base_paddr() = 0x%lx, addr = 0x%lx, tor_paddr() = 0x%lx\n",
+//      tor_base_paddr(), addr, tor_paddr());
+    return tor_base_paddr() <= addr && addr < tor_paddr();
+  }
 
   // NAPOT or NA4:
   return ((addr ^ tor_paddr()) & napot_mask()) == 0;
@@ -369,7 +379,7 @@ bool spmpaddr_csr_t::subset_match(reg_t addr, reg_t len) const noexcept {
   return !(is_tor ? tor_homogeneous : napot_homogeneous);
 }
 
-bool spmpaddr_csr_t::access_ok(access_type type, reg_t mode, bool sstatus_sum) const noexcept  {
+bool spmpaddr_csr_t::access_ok(access_type type, reg_t mode, bool virt, bool sstatus_sum) const noexcept  {
   
   const bool cfgx = cfg & SPMP_X;
   const bool cfgw = cfg & SPMP_W;
@@ -384,6 +394,8 @@ bool spmpaddr_csr_t::access_ok(access_type type, reg_t mode, bool sstatus_sum) c
   const bool typex = type == FETCH;
   const bool typew = type == STORE;
   const bool normal_rwx = (typer && cfgr) || (typew && cfgw) || (typex && cfgx);
+
+  const bool spmp_check_for_vu_or_vs = !is_vspmp_csr && virt;
 
   if (mmode) {
     return true;
@@ -403,6 +415,7 @@ bool spmpaddr_csr_t::access_ok(access_type type, reg_t mode, bool sstatus_sum) c
     const bool shared_region = shr_RO || (!cfgr && cfgw) ;
     
     if (shared_region) {
+
       const bool shr_RX = smode && !cfg && cfgw && cfgx;
       const bool shr_X_WX = umode && !cfgr && cfgw && cfgx;
       const bool shr_X_W = !cfgr && cfgw && !cfgx;
@@ -412,7 +425,9 @@ bool spmpaddr_csr_t::access_ok(access_type type, reg_t mode, bool sstatus_sum) c
         (shr_X_WX && typex) ||
         (shr_X_W && typex);
 
-    } else if (smode) {
+    // In case that we are doing a SPMP check and the request came from VS or VU
+    //  (spmp_check_for_vu_or_vs == 1), Umode rules must be applied.
+    } else if (!spmp_check_for_vu_or_vs && smode) {
       // In S-mode but not in the shared region
       return normal_rwx;
 
@@ -420,22 +435,26 @@ bool spmpaddr_csr_t::access_ok(access_type type, reg_t mode, bool sstatus_sum) c
       // In U-mode but not in the shared region
       return false;
     }
-
   } else {
     // U-mode-only
 
     const bool shared_region = !cfgr && cfgw ;
     
     if (shared_region) {
+
       const bool shr_RW_WX = !cfgr && cfgw && cfgx;
       const bool shr_RW_W = smode && !cfgr && cfgw && !cfgx;
       const bool shr_RO = umode && !cfgr && cfgw && !cfgx;
+
       return
         (shr_RW_WX && (typer || typew)) ||
         (shr_RW_W && (typer || typew)) ||
         (shr_RO && typer);
         
-    } else if (smode) {
+    // In case that we are doing a SPMP check and the request came from VS or VU
+    //  (spmp_check_for_vu_or_vs == 1), Umode rules should be applied.
+    } else if (!spmp_check_for_vu_or_vs && smode) {
+
       // In S-mode but not in a shared region
       if (sstatus_sum) {
         return (typer && cfgr) || (typew && cfgw);
@@ -445,9 +464,9 @@ bool spmpaddr_csr_t::access_ok(access_type type, reg_t mode, bool sstatus_sum) c
 
     } else {
       // In U-mode but not in a shared region
+
       return normal_rwx;
     }
-
   }
 }
 
@@ -587,11 +606,17 @@ bool virtualized_csr_t::unlogged_write(const reg_t val) noexcept {
 }
 
 // implementing class virtualized_spmpaddr_csr_t
-virtualized_spmpaddr_csr_t::virtualized_spmpaddr_csr_t(
-  processor_t* const proc, spmpaddr_csr_t_p orig, spmpaddr_csr_t_p virt):
+virtualized_spmpaddr_csr_t::virtualized_spmpaddr_csr_t(processor_t* const proc, spmpaddr_csr_t_p orig,
+    spmpaddr_csr_t_p virt):
   virtualized_csr_t(proc, orig, virt),
   virt_spmpaddr(virt),
   orig_spmpaddr(orig) {
+}
+
+// implementing class virtualized_spmpcfg_csr_t
+  virtualized_spmpcfg_csr_t::virtualized_spmpcfg_csr_t(
+      processor_t* const proc, spmpcfg_csr_t_p orig, spmpcfg_csr_t_p virt) :
+  virtualized_csr_t(proc, orig, virt) {
 }
 
 // implement class epc_csr_t

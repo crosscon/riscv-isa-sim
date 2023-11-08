@@ -432,9 +432,11 @@ private:
   {
     const size_t ptesize = sizeof(T);
 
-    if (!vspmp_ok(pte_paddr, ptesize, LOAD, PRV_S))
+    if (!vspmp_ok(pte_paddr, ptesize, LOAD, PRV_S)) {
+      fprintf(stderr, "vspmp check pte_load \n");
       throw_spmp_access_exception(virt, addr, trap_type);
-    if (!spmp_ok(pte_paddr, ptesize, LOAD, PRV_S))
+    }
+    if (!spmp_ok(pte_paddr, ptesize, LOAD, PRV_S, proc->state.v))
       throw_spmp_access_exception(virt, addr, trap_type);
     if (!pmp_ok(pte_paddr, ptesize, LOAD, PRV_S))
       throw_access_exception(virt, addr, trap_type);
@@ -455,7 +457,7 @@ private:
 
     if (!vspmp_ok(pte_paddr, ptesize, STORE, PRV_S))
       throw_spmp_access_exception(virt, addr, trap_type);
-    if (!spmp_ok(pte_paddr, ptesize, STORE, PRV_S))
+    if (!spmp_ok(pte_paddr, ptesize, STORE, PRV_S, proc->state.v))
       throw_spmp_access_exception(virt, addr, trap_type);
     if (!pmp_ok(pte_paddr, ptesize, STORE, PRV_S))
       throw_access_exception(virt, addr, trap_type);
@@ -495,7 +497,7 @@ private:
   bool pmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode);
   bool spmp_enabled();
   bool vspmp_enabled();
-  bool spmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode);
+  bool spmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode, const bool req_from_virt);
   bool vspmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode);
 
 #ifdef RISCV_ENABLE_DUAL_ENDIAN
