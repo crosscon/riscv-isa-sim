@@ -66,28 +66,26 @@ void throw_spmp_access_exception(bool virt, reg_t addr, access_type type)
   }
 }
 
-reg_t mmu_t::translate(mem_access_info_t access_info, reg_t len)
+mmu_t::trans_addr_t mmu_t::translate(mem_access_info_t access_info, reg_t len)
 {
-  //fprintf(stderr, "Entering translate ... addr = 0x%lx, type = %u, len = 0x%lx\n",
-  //        access_info.vaddr, access_info.type, len);
-          
   reg_t addr = access_info.vaddr;
   access_type type = access_info.type;
   if (!proc)
-    return addr;
+    return {addr, addr};
 
-  // TODO: Is it OK that we force both spmp and pmp checks according to the following.
   bool virt = access_info.effective_virt;
   reg_t mode = (reg_t) access_info.effective_priv;
 
-  reg_t paddr = walk(access_info) | (addr & (PGSIZE-1));
-  if (!vspmp_ok(paddr, len, type, mode))
+  trans_addr_t taddr = walk(access_info, len);
+  const reg_t poffset = addr & (PGSIZE-1);
+  taddr = {taddr.paddr | poffset, taddr.gpaddr | poffset};
+  
+  if (!spmp_ok(taddr.paddr, len, type, mode, virt))
     throw_spmp_access_exception(virt, addr, type);
-  if (!spmp_ok(paddr, len, type, mode,  proc->state.v))
-    throw_spmp_access_exception(virt, addr, type);
-  if (!pmp_ok(paddr, len, type, mode))
+  if (!pmp_ok(taddr.paddr, len, type, mode))
     throw_access_exception(virt, addr, type);
-  return paddr;
+
+  return taddr;
 }
 
 tlb_entry_t mmu_t::fetch_slow_path(reg_t vaddr)
@@ -98,13 +96,13 @@ tlb_entry_t mmu_t::fetch_slow_path(reg_t vaddr)
   tlb_entry_t result;
   reg_t vpn = vaddr >> PGSHIFT;
   if (unlikely(tlb_insn_tag[vpn % TLB_ENTRIES] != (vpn | TLB_CHECK_TRIGGERS))) {
-    reg_t paddr = translate(access_info, sizeof(fetch_temp));
-    if (auto host_addr = sim->addr_to_mem(paddr)) {
-      result = refill_tlb(vaddr, paddr, host_addr, FETCH);
+    trans_addr_t taddr = translate(access_info, sizeof(fetch_temp));
+    if (auto host_addr = sim->addr_to_mem(taddr.paddr)) {
+      result = refill_tlb(vaddr, taddr.gpaddr, taddr.paddr, host_addr, FETCH);
     } else {
-      if (!mmio_fetch(paddr, sizeof fetch_temp, (uint8_t*)&fetch_temp))
+      if (!mmio_fetch(taddr.paddr, sizeof fetch_temp, (uint8_t*)&fetch_temp))
         throw trap_instruction_access_fault(proc->state.v, vaddr, 0, 0);
-      result = {(char*)&fetch_temp - vaddr, paddr - vaddr};
+      result = {(char*)&fetch_temp - vaddr, taddr.paddr - vaddr};
     }
   } else {
     result = tlb_data[vpn % TLB_ENTRIES];
@@ -221,25 +219,25 @@ void mmu_t::load_slow_path_intrapage(reg_t len, uint8_t* bytes, mem_access_info_
     return;
   }
 
-  reg_t paddr = translate(access_info, len);
+  trans_addr_t taddr = translate(access_info, len);
 
-  if (access_info.flags.lr && !sim->reservable(paddr)) {
+  if (access_info.flags.lr && !sim->reservable(taddr.paddr)) {
     throw trap_load_access_fault(access_info.effective_virt, addr, 0, 0);
   }
 
-  if (auto host_addr = sim->addr_to_mem(paddr)) {
+  if (auto host_addr = sim->addr_to_mem(taddr.paddr)) {
     memcpy(bytes, host_addr, len);
-    if (tracer.interested_in_range(paddr, paddr + PGSIZE, LOAD))
-      tracer.trace(paddr, len, LOAD);
+    if (tracer.interested_in_range(taddr.paddr, taddr.paddr + PGSIZE, LOAD))
+      tracer.trace(taddr.paddr, len, LOAD);
     else if (!access_info.flags.is_special_access())
-      refill_tlb(addr, paddr, host_addr, LOAD);
+      refill_tlb(addr, taddr.gpaddr, taddr.paddr, host_addr, LOAD);
 
-  } else if (!mmio_load(paddr, len, bytes)) {
+  } else if (!mmio_load(taddr.paddr, len, bytes)) {
     throw trap_load_access_fault(access_info.effective_virt, addr, 0, 0);
   }
 
   if (access_info.flags.lr) {
-    load_reservation_address = paddr;
+    load_reservation_address = taddr.paddr;
   }
 }
 
@@ -284,16 +282,16 @@ void mmu_t::store_slow_path_intrapage(reg_t len, const uint8_t* bytes, mem_acces
     return;
   }
 
-  reg_t paddr = translate(access_info, len);
+  trans_addr_t taddr = translate(access_info, len);
 
   if (actually_store) {
-    if (auto host_addr = sim->addr_to_mem(paddr)) {
+    if (auto host_addr = sim->addr_to_mem(taddr.paddr)) {
       memcpy(host_addr, bytes, len);
-      if (tracer.interested_in_range(paddr, paddr + PGSIZE, STORE))
-        tracer.trace(paddr, len, STORE);
+      if (tracer.interested_in_range(taddr.paddr, taddr.paddr + PGSIZE, STORE))
+        tracer.trace(taddr.paddr, len, STORE);
       else if (!access_info.flags.is_special_access())
-        refill_tlb(addr, paddr, host_addr, STORE);
-    } else if (!mmio_store(paddr, len, bytes)) {
+        refill_tlb(addr, taddr.gpaddr, taddr.paddr, host_addr, STORE);
+    } else if (!mmio_store(taddr.paddr, len, bytes)) {
       throw trap_store_access_fault(access_info.effective_virt, addr, 0, 0);
     }
   }
@@ -330,7 +328,7 @@ void mmu_t::store_slow_path(reg_t addr, reg_t len, const uint8_t* bytes, xlate_f
   }
 }
 
-tlb_entry_t mmu_t::refill_tlb(reg_t vaddr, reg_t paddr, char* host_addr, access_type type)
+tlb_entry_t mmu_t::refill_tlb(reg_t vaddr, reg_t gpaddr, reg_t paddr, char* host_addr, access_type type)
 {
   reg_t idx = (vaddr >> PGSHIFT) % TLB_ENTRIES;
   reg_t expected_tag = vaddr >> PGSHIFT;
@@ -352,9 +350,9 @@ tlb_entry_t mmu_t::refill_tlb(reg_t vaddr, reg_t paddr, char* host_addr, access_
       (check_triggers_store && type == STORE))
     expected_tag |= TLB_CHECK_TRIGGERS;
 
-  // Even when satp.mode == Bare or vsatp.mode == Bare, the TLB is used.
-  // Therefore, we need to check if memory access was homogeneous according to SPMP and vSPMP rules.
-  if (vspmp_homogeneous(paddr & ~reg_t(PGSIZE - 1), PGSIZE) &&
+  // Even when satp.mode == Bare or vsatp.mode == Bare, the TLB is still used.
+  // Therefore, we need to check if memory access was homogeneous according to PMP, SPMP and vSPMP rules.
+  if (vspmp_homogeneous(gpaddr & ~reg_t(PGSIZE - 1), PGSIZE) &&
       spmp_homogeneous(paddr & ~reg_t(PGSIZE - 1), PGSIZE) &&
       pmp_homogeneous(paddr & ~reg_t(PGSIZE - 1), PGSIZE)) {
     if (type == FETCH) tlb_insn_tag[idx] = expected_tag;
@@ -399,7 +397,10 @@ bool mmu_t::pmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode)
 }
 
 bool mmu_t::spmp_enabled() {
-  // SPMP should only be enabled when satp.mod = Bare.
+
+  // TODO: In case that, hgatp.mode != BARE, SPMP probably also be disabled.
+
+  // SPMP should only perform checks when satp.mode = Bare.
   const reg_t satp = proc->state.satp->read();
   const unsigned int xlen = proc->get_const_xlen();
 
@@ -410,15 +411,10 @@ bool mmu_t::spmp_enabled() {
   return e;
 }
 
-bool mmu_t::vspmp_enabled() {
-
-  if (!proc->state.v) {
-    return false;
-  }
-
-  // SPMP should only be enabled when vsatp.mod = Bare.
-  const reg_t satp = proc->state.vsatp->read();
+bool mmu_t::vspmp_enabled(const bool virt) {
+  // SPMP should only perform checks when vsatp.mode = Bare.
   const unsigned int xlen = proc->get_const_xlen();
+  const reg_t satp = proc->state.vsatp->read();
 
   const bool e = xlen == 32 ?
       (get_field(satp, SATP32_MODE) == SATP_MODE_OFF) :
@@ -462,12 +458,17 @@ bool mmu_t::spmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode, const b
   return (mode == PRV_M) || (mode == PRV_S);
 }
 
-bool mmu_t::vspmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode)
+bool mmu_t::vspmp_ok(reg_t addr, reg_t len, access_type type, bool virt, reg_t mode)
 {
   if (!proc || proc->n_spmp == 0)
     return true;
 
-  if (!vspmp_enabled()) {
+  // vSPMP should only perform checks if mode is effectively virtual.
+  if (!virt) {
+    return false;
+  }
+
+  if (!vspmp_enabled(virt)) {
     return true;
   }
 
@@ -531,13 +532,16 @@ reg_t mmu_t::spmp_homogeneous(reg_t addr, reg_t len)
 
 reg_t mmu_t::vspmp_homogeneous(reg_t addr, reg_t len)
 {
+  return false;
+
   if ((addr | len) & (len - 1))
     abort();
 
   if (!proc)
     return true;
 
-  if (!vspmp_enabled())
+  // We always check if access is homogeneous except of vSPMP is disabled.
+  if (!vspmp_enabled(true))
     return true;
 
   for (size_t i = 0; i < proc->n_spmp; i++)
@@ -547,10 +551,14 @@ reg_t mmu_t::vspmp_homogeneous(reg_t addr, reg_t len)
   return true;
 }
 
-reg_t mmu_t::s2xlate(reg_t gva, reg_t gpa, access_type type, access_type trap_type, bool virt, bool hlvx)
-{
+reg_t mmu_t::s2xlate(reg_t gva, reg_t gpa, reg_t len, access_type type, access_type trap_type, bool virt, reg_t mode, bool hlvx)
+{   
   if (!virt)
     return gpa;
+
+  // vSPMP check needs to be performed before 2nd stage (G-stage) address translation.
+  if (!vspmp_ok(gpa, len, type, mode, virt))
+    throw_spmp_access_exception(virt, gva, type);
 
   vm_info vm = decode_vm_info(proc->get_const_xlen(), true, 0, proc->get_state()->hgatp->read());
   if (vm.levels == 0)
@@ -633,7 +641,7 @@ reg_t mmu_t::s2xlate(reg_t gva, reg_t gpa, access_type type, access_type trap_ty
   }
 }
 
-reg_t mmu_t::walk(mem_access_info_t access_info)
+mmu_t::trans_addr_t mmu_t::walk(mem_access_info_t access_info, reg_t len)
 {
   access_type type = access_info.type;
   reg_t addr = access_info.vaddr;
@@ -643,8 +651,11 @@ reg_t mmu_t::walk(mem_access_info_t access_info)
   reg_t page_mask = (reg_t(1) << PGSHIFT) - 1;
   reg_t satp = proc->get_state()->satp->readvirt(virt);
   vm_info vm = decode_vm_info(proc->get_const_xlen(), false, mode, satp);
-  if (vm.levels == 0)
-    return s2xlate(addr, addr & ((reg_t(2) << (proc->xlen-1))-1), type, type, virt, hlvx) & ~page_mask; // zero-extend from xlen
+  if (vm.levels == 0) {
+    reg_t gpaddr = addr & ((reg_t(2) << (proc->xlen-1))-1);
+    reg_t paddr = s2xlate(addr, gpaddr, len, type, type, virt, mode, hlvx) & ~page_mask; // zero-extend from xlen
+    return {paddr, gpaddr};
+  }
 
   bool s_mode = mode == PRV_S;
   bool sum = proc->state.sstatus->readvirt(virt) & MSTATUS_SUM;
@@ -663,7 +674,7 @@ reg_t mmu_t::walk(mem_access_info_t access_info)
     reg_t idx = (addr >> (PGSHIFT + ptshift)) & ((1 << vm.idxbits) - 1);
 
     // check that physical address of PTE is legal
-    auto pte_paddr = s2xlate(addr, base + idx * vm.ptesize, LOAD, type, virt, false);
+    auto pte_paddr = s2xlate(addr, base + idx * vm.ptesize, len, LOAD, type, virt, mode, false);
     reg_t pte = pte_load(pte_paddr, addr, virt, type, vm.ptesize);
     reg_t ppn = (pte & ~reg_t(PTE_ATTR)) >> PTE_PPN_SHIFT;
     bool pbmte = virt ? (proc->get_state()->henvcfg->read() & HENVCFG_PBMTE) : (proc->get_state()->menvcfg->read() & MENVCFG_PBMTE);
@@ -714,8 +725,9 @@ reg_t mmu_t::walk(mem_access_info_t access_info)
       reg_t page_base = ((ppn & ~((reg_t(1) << napot_bits) - 1))
                         | (vpn & ((reg_t(1) << napot_bits) - 1))
                         | (vpn & ((reg_t(1) << ptshift) - 1))) << PGSHIFT;
-      reg_t phys = page_base | (addr & page_mask);
-      return s2xlate(addr, phys, type, type, virt, hlvx) & ~page_mask;
+      reg_t gpaddr = page_base | (addr & page_mask);
+      reg_t paddr = s2xlate(addr, gpaddr, len, type, type, virt, mode, hlvx) & ~page_mask;
+      return {paddr, gpaddr};
     }
   }
 

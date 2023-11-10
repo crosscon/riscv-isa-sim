@@ -231,10 +231,10 @@ public:
     for (size_t offset = 0; offset < blocksz; offset += 1)
       check_triggers(triggers::OPERATION_STORE, base + offset, false, addr, std::nullopt);
     convert_load_traps_to_store_traps({
-      const reg_t paddr = translate(generate_access_info(addr, LOAD, {false, false, false}), 1);
-      if (sim->reservable(paddr)) {
-        if (tracer.interested_in_range(paddr, paddr + PGSIZE, LOAD))
-          tracer.clean_invalidate(paddr, blocksz, clean, inval);
+      const trans_addr_t taddr = translate(generate_access_info(addr, LOAD, {false, false, false}), 1);
+      if (sim->reservable(taddr.paddr)) {
+        if (tracer.interested_in_range(taddr.paddr, taddr.paddr + PGSIZE, LOAD))
+          tracer.clean_invalidate(taddr.paddr, blocksz, clean, inval);
       } else {
         throw trap_store_access_fault((proc) ? proc->state.v : false, addr, 0, 0);
       }
@@ -253,9 +253,9 @@ public:
       store_slow_path(vaddr, size, nullptr, {false, false, false}, false, true);
     }
 
-    reg_t paddr = translate(generate_access_info(vaddr, STORE, {false, false, false}), 1);
-    if (sim->reservable(paddr))
-      return load_reservation_address == paddr;
+    trans_addr_t taddr = translate(generate_access_info(vaddr, STORE, {false, false, false}), 1);
+    if (sim->reservable(taddr.paddr))
+      return load_reservation_address == taddr.paddr;
     else
       throw trap_store_access_fault((proc) ? proc->state.v : false, vaddr, 0, 0);
   }
@@ -388,14 +388,19 @@ private:
   reg_t tlb_store_tag[TLB_ENTRIES];
 
   // finish translation on a TLB miss and update the TLB
-  tlb_entry_t refill_tlb(reg_t vaddr, reg_t paddr, char* host_addr, access_type type);
+  tlb_entry_t refill_tlb(reg_t vaddr, reg_t gpaddr, reg_t paddr, char* host_addr, access_type type);
   const char* fill_from_mmio(reg_t vaddr, reg_t paddr);
 
   // perform a stage2 translation for a given guest address
-  reg_t s2xlate(reg_t gva, reg_t gpa, access_type type, access_type trap_type, bool virt, bool hlvx);
+  reg_t s2xlate(reg_t gva, reg_t gpa, reg_t len, access_type type, access_type trap_type, bool virt, reg_t mode, bool hlvx);
+
+  struct trans_addr_t {
+    reg_t paddr; // supervisor physical address
+    reg_t gpaddr; // guest physical address
+  }; 
 
   // perform a page table walk for a given VA; set referenced/dirty bits
-  reg_t walk(mem_access_info_t access_info);
+  trans_addr_t walk(mem_access_info_t access_info, const reg_t len);
 
   // handle uncommon cases: TLB misses, page faults, MMIO
   tlb_entry_t fetch_slow_path(reg_t addr);
@@ -412,7 +417,7 @@ private:
     check_triggers(operation, address, virt, address, data);
   }
   void check_triggers(triggers::operation_t operation, reg_t address, bool virt, reg_t tval, std::optional<reg_t> data);
-  reg_t translate(mem_access_info_t access_info, reg_t len);
+  trans_addr_t translate(mem_access_info_t access_info, reg_t len);
 
   reg_t pte_load(reg_t pte_paddr, reg_t addr, bool virt, access_type trap_type, size_t ptesize) {
     if (ptesize == 4)
@@ -432,10 +437,6 @@ private:
   {
     const size_t ptesize = sizeof(T);
 
-    if (!vspmp_ok(pte_paddr, ptesize, LOAD, PRV_S)) {
-      fprintf(stderr, "vspmp check pte_load \n");
-      throw_spmp_access_exception(virt, addr, trap_type);
-    }
     if (!spmp_ok(pte_paddr, ptesize, LOAD, PRV_S, proc->state.v))
       throw_spmp_access_exception(virt, addr, trap_type);
     if (!pmp_ok(pte_paddr, ptesize, LOAD, PRV_S))
@@ -455,8 +456,6 @@ private:
   {
     const size_t ptesize = sizeof(T);
 
-    if (!vspmp_ok(pte_paddr, ptesize, STORE, PRV_S))
-      throw_spmp_access_exception(virt, addr, trap_type);
     if (!spmp_ok(pte_paddr, ptesize, STORE, PRV_S, proc->state.v))
       throw_spmp_access_exception(virt, addr, trap_type);
     if (!pmp_ok(pte_paddr, ptesize, STORE, PRV_S))
@@ -491,14 +490,17 @@ private:
            && get_field(proc->state.mstatus->read(), MSTATUS_MPRV);
   }
 
+  // Get satp.mode for 32-bit or 64-bit system.
+  reg_t get_satp_mode();
+
   reg_t pmp_homogeneous(reg_t addr, reg_t len);
   reg_t spmp_homogeneous(reg_t addr, reg_t len);
   reg_t vspmp_homogeneous(reg_t addr, reg_t len);
   bool pmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode);
   bool spmp_enabled();
-  bool vspmp_enabled();
+  bool vspmp_enabled(const bool virt);
   bool spmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode, const bool req_from_virt);
-  bool vspmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode);
+  bool vspmp_ok(reg_t addr, reg_t len, access_type type, bool virt, reg_t mode);
 
 #ifdef RISCV_ENABLE_DUAL_ENDIAN
   bool target_big_endian;

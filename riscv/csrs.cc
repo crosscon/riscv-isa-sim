@@ -439,7 +439,7 @@ bool spmpaddr_csr_t::access_ok(access_type type, reg_t mode, bool virt, bool sst
     // U-mode-only
 
     const bool shared_region = !cfgr && cfgw ;
-    
+
     if (shared_region) {
 
       const bool shr_RW_WX = !cfgr && cfgw && cfgx;
@@ -513,17 +513,8 @@ bool spmpcfg_csr_t::unlogged_write(const reg_t val) noexcept {
         cfg |= SPMP_NAPOT;
 
       
-      // The reserved SRWX=1000 encoding is used to mark a shared read/write/execute region for now.
+      // Note, the reserved SRWX=1000 encoding is used to mark a shared read/write/execute region for now.
       // Therefore, the 1000 is a valid value. This enables backward compatibility.
-      //const bool cfgx = cfg & SPMP_X;
-      //const bool cfgw = cfg & SPMP_W;
-      //const bool cfgr = cfg & SPMP_R;
-      //const bool cfgs = cfg & SPMP_S;
-      //const bool reserved = !cfgr && !cfgw && !cfgx;
-      //if ((cfg & SPMP_A) && cfgs && reserved) {
-      //  // If reserved configuration is written to the entry's register, the entry is disabled.
-      //  cfg = 0x0;
-      //}
 
       addrs_csrs[i]->cfg = cfg;
 
