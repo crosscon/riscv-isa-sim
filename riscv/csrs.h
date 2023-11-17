@@ -145,7 +145,8 @@ class pmpcfg_csr_t: public csr_t {
 class spmpaddr_csr_t: public csr_t {
  public:
   spmpaddr_csr_t(processor_t* const proc, const reg_t addr, const size_t idx,
-                 std::shared_ptr<spmpaddr_csr_t> prev_addr, const bool is_vspmp_csr);
+                 std::shared_ptr<spmpaddr_csr_t> prev_addr, csr_t_p spmpswitch, 
+                 const bool is_vspmp_csr);
   virtual void verify_permissions(insn_t insn, bool write) const override;
   virtual reg_t read() const noexcept override;
 
@@ -184,6 +185,8 @@ class spmpaddr_csr_t: public csr_t {
   const size_t idx;
   // Previous spmpaddr cfg used to get a TOR range.
   std::shared_ptr<spmpaddr_csr_t> prev_addr;
+  // Corresponding spmpswitch
+  csr_t_p spmpswitch;
   // Is the class is used as a vSPMP's vspmpaddr csr?
   const bool is_vspmp_csr;
 };

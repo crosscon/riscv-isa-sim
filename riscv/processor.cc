@@ -432,6 +432,19 @@ void state_t::reset(processor_t* const proc, reg_t max_isa)
 
   csrmap[CSR_MSECCFG] = mseccfg = std::make_shared<mseccfg_csr_t>(proc, CSR_MSECCFG);
 
+  spmpswitch = std::make_shared<basic_csr_t>(proc, CSR_SPMPSWITCH0, ~((reg_t)0));
+  virtual_spmpswitch = std::make_shared<basic_csr_t>(proc, CSR_VSPMPSWITCH0, ~((reg_t)0));
+  auto virtualized_spmpswitch = std::make_shared<virtualized_csr_t>(proc, spmpswitch, virtual_spmpswitch);
+  if (xlen == 32) {
+    csrmap[CSR_SPMPSWITCH0] = std::make_shared<rv32_low_csr_t>(proc, CSR_SPMPSWITCH0, virtualized_spmpswitch);
+    csrmap[CSR_SPMPSWITCH1] = std::make_shared<rv32_high_csr_t>(proc, CSR_SPMPSWITCH1, virtualized_spmpswitch);
+    csrmap[CSR_VSPMPSWITCH0] = std::make_shared<rv32_low_csr_t>(proc, CSR_VSPMPSWITCH0, virtual_spmpswitch);
+    csrmap[CSR_VSPMPSWITCH1] = std::make_shared<rv32_high_csr_t>(proc, CSR_VSPMPSWITCH1, virtual_spmpswitch);
+  } else {
+    csrmap[CSR_SPMPSWITCH0] = virtualized_spmpswitch;
+    csrmap[CSR_VSPMPSWITCH0] = virtual_spmpswitch;
+  }
+
   for (int i = 0; i < max_pmp; ++i) {
     csrmap[CSR_PMPADDR0 + i] = pmpaddr[i] = std::make_shared<pmpaddr_csr_t>(proc, CSR_PMPADDR0 + i);
   }
@@ -441,8 +454,8 @@ void state_t::reset(processor_t* const proc, reg_t max_isa)
   }
 
   for (int i = 0; i < max_spmp; ++i) {
-    nonvirtual_spmpaddr[i] = std::make_shared<spmpaddr_csr_t>(proc, CSR_SPMPADDR0 + i, i, nonvirtual_spmpaddr[i-1], false);
-    csrmap[CSR_VSPMPADDR0 + i] = virtual_spmpaddr[i] = std::make_shared<spmpaddr_csr_t>(proc, CSR_VSPMPADDR0 + i, i, virtual_spmpaddr[i-1], true);
+    nonvirtual_spmpaddr[i] = std::make_shared<spmpaddr_csr_t>(proc, CSR_SPMPADDR0 + i, i, nonvirtual_spmpaddr[i-1], spmpswitch, false);
+    csrmap[CSR_VSPMPADDR0 + i] = virtual_spmpaddr[i] = std::make_shared<spmpaddr_csr_t>(proc, CSR_VSPMPADDR0 + i, i, virtual_spmpaddr[i-1], virtual_spmpswitch, true);
     csrmap[CSR_SPMPADDR0 + i] = spmpaddr[i] = std::make_shared<virtualized_spmpaddr_csr_t>(proc, nonvirtual_spmpaddr[i], virtual_spmpaddr[i]);
   }
   for (int i = 0; i < max_spmp; i += xlen / 8) {
@@ -649,10 +662,12 @@ void processor_t::reset()
   }
 
   if (n_spmp > 0) {
-    // For backwards compatibility with software that is unaware of SPMP,
-    // initialize SPMP to permit unprivileged access to all of memory.
+    // For backwards compatibility with software that is unaware of SPMP and vSPMP,
+    // initialize SPMP and vSPMP to permit unprivileged access to all of memory.
     put_csr(CSR_SPMPADDR0, ~reg_t(0));
     put_csr(CSR_SPMPCFG0, SPMP_SharedRWX | SPMP_NAPOT);
+    put_csr(CSR_VSPMPADDR0, ~reg_t(0));
+    put_csr(CSR_VSPMPCFG0, SPMP_SharedRWX | SPMP_NAPOT);
   }
 
   for (auto e : custom_extensions) // reset any extensions

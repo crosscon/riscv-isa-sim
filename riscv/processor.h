@@ -156,6 +156,8 @@ struct state_t
   virtualized_spmpaddr_csr_t_p spmpaddr[max_spmp];
   spmpaddr_csr_t_p nonvirtual_spmpaddr[max_spmp];
   spmpaddr_csr_t_p virtual_spmpaddr[max_spmp];
+  csr_t_p spmpswitch;
+  csr_t_p virtual_spmpswitch;
 
   float_csr_t_p fflags;
   float_csr_t_p frm;

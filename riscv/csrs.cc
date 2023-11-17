@@ -154,11 +154,9 @@ reg_t pmpaddr_csr_t::napot_mask() const noexcept {
 bool pmpaddr_csr_t::match4(reg_t addr) const noexcept {
   if ((cfg & PMP_A) == 0) return false;
   bool is_tor = (cfg & PMP_A) == PMP_TOR;
-  if (is_tor){
-//    fprintf(stderr, "pmp: tor_base_paddr() = 0x%lx, addr = 0x%lx, tor_paddr() = 0x%lx\n",
-//      tor_base_paddr(), addr, tor_paddr());
+  if (is_tor)
     return tor_base_paddr() <= addr && addr < tor_paddr();
-  }
+
   // NAPOT or NA4:
   return ((addr ^ tor_paddr()) & napot_mask()) == 0;
 }
@@ -285,12 +283,13 @@ bool pmpcfg_csr_t::unlogged_write(const reg_t val) noexcept {
 
 // implement class spmpaddr_csr_t
 spmpaddr_csr_t::spmpaddr_csr_t(processor_t* const proc, const reg_t addr, const size_t idx,
-    std::shared_ptr<spmpaddr_csr_t> prev_addr, const bool is_vspmp_csr):
+    std::shared_ptr<spmpaddr_csr_t> prev_addr, csr_t_p spmpswitch, const bool is_vspmp_csr):
   csr_t(proc, addr),
   val(0),
   cfg(0),
   idx(idx),
   prev_addr(prev_addr),
+  spmpswitch(spmpswitch),
   is_vspmp_csr(is_vspmp_csr){
 }
 
@@ -345,13 +344,15 @@ reg_t spmpaddr_csr_t::napot_mask() const noexcept {
 }
 
 bool spmpaddr_csr_t::match4(reg_t addr) const noexcept {
+
   if ((cfg & SPMP_A) == 0) return false;
+  
+  const bool switch_enabled = spmpswitch->read() & (((reg_t)1) << idx);
+  if (!switch_enabled) return false;
+
   bool is_tor = (cfg & SPMP_A) == SPMP_TOR;
-  if (is_tor) {
-//    fprintf(stderr, "spmp: tor_base_paddr() = 0x%lx, addr = 0x%lx, tor_paddr() = 0x%lx\n",
-//      tor_base_paddr(), addr, tor_paddr());
+  if (is_tor)
     return tor_base_paddr() <= addr && addr < tor_paddr();
-  }
 
   // NAPOT or NA4:
   return ((addr ^ tor_paddr()) & napot_mask()) == 0;
@@ -490,8 +491,6 @@ void spmpcfg_csr_t::verify_permissions(insn_t insn, bool write) const {
 
 reg_t spmpcfg_csr_t::read() const noexcept {
   reg_t cfg_res = 0;
-  // TODO: Refactor. There is probably a nice way to store the value of the cfg and how it can be used
-  // to perform SPMP and vSPMP access checks.
   for (size_t i0 = (address - base_addr) * 4, i = i0; i < i0 + proc->get_xlen() / 8 && i < state->max_spmp; i++)
     cfg_res |= reg_t(addrs_csrs[i]->cfg) << (8 * (i - i0));
   return cfg_res;
@@ -511,7 +510,6 @@ bool spmpcfg_csr_t::unlogged_write(const reg_t val) noexcept {
       // Disallow A=NA4 when granularity > 4
       if (proc->lg_spmp_granularity != SPMP_SHIFT && (cfg & SPMP_A) == SPMP_NA4)
         cfg |= SPMP_NAPOT;
-
       
       // Note, the reserved SRWX=1000 encoding is used to mark a shared read/write/execute region for now.
       // Therefore, the 1000 is a valid value. This enables backward compatibility.

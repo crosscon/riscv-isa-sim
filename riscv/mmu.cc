@@ -462,10 +462,10 @@ bool mmu_t::vspmp_ok(reg_t addr, reg_t len, access_type type, bool virt, reg_t m
 {
   if (!proc || proc->n_spmp == 0)
     return true;
-
+  
   // vSPMP should only perform checks if mode is effectively virtual.
   if (!virt) {
-    return false;
+    return true;
   }
 
   if (!vspmp_enabled(virt)) {
@@ -489,7 +489,7 @@ bool mmu_t::vspmp_ok(reg_t addr, reg_t len, access_type type, bool virt, reg_t m
         return false;
 
       const bool sstatus_sum = proc->state.sstatus->readvirt(true) & SSTATUS_SUM;
-      return proc->state.spmpaddr[i]->virt_spmpaddr->access_ok(type, mode, proc->state.v ,sstatus_sum);
+      return proc->state.spmpaddr[i]->virt_spmpaddr->access_ok(type, mode, virt, sstatus_sum);
     }
   }
 
@@ -557,7 +557,7 @@ reg_t mmu_t::s2xlate(reg_t gva, reg_t gpa, reg_t len, access_type type, access_t
     return gpa;
 
   // vSPMP check needs to be performed before 2nd stage (G-stage) address translation.
-  if (!vspmp_ok(gpa, len, type, mode, virt))
+  if (!vspmp_ok(gpa, len, type, virt, mode))
     throw_spmp_access_exception(virt, gva, type);
 
   vm_info vm = decode_vm_info(proc->get_const_xlen(), true, 0, proc->get_state()->hgatp->read());
