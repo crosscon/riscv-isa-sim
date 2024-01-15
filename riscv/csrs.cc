@@ -417,7 +417,7 @@ bool spmpaddr_csr_t::access_ok(access_type type, reg_t mode, bool req_from_virt,
     
     if (shared_region) {
 
-      const bool shr_RX = smode && !cfg && cfgw && cfgx;
+      const bool shr_RX = smode && !cfgr && cfgw && cfgx;
       const bool shr_X_WX = umode && !cfgr && cfgw && cfgx;
       const bool shr_X_W = !cfgr && cfgw && !cfgx;
       return
