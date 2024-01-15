@@ -24,6 +24,7 @@ int main()
             false,
             endianness_little,
             16,
+            16,
             mem_cfg,
             hartids,
             false,

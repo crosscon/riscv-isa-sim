@@ -16,6 +16,7 @@ std::string make_dts(size_t insns_per_rtc_tick, size_t cpu_hz,
                      reg_t initrd_start, reg_t initrd_end,
                      const char* bootargs,
                      size_t pmpregions,
+                     size_t spmpregions,
                      std::vector<processor_t*> procs,
                      std::vector<std::pair<reg_t, abstract_mem_t*>> mems,
                      std::string device_nodes)
@@ -63,6 +64,8 @@ std::string make_dts(size_t insns_per_rtc_tick, size_t cpu_hz,
          "      mmu-type = \"riscv," << (procs[i]->get_isa().get_max_xlen() <= 32 ? "sv32" : "sv57") << "\";\n"
          "      riscv,pmpregions = <" << pmpregions << ">;\n"
          "      riscv,pmpgranularity = <" << (1 << PMP_SHIFT) << ">;\n"
+         "      riscv,spmpregions = <" << spmpregions << ">;\n"
+         "      riscv,spmpgranularity = <" << (1 << PMP_SHIFT) << ">;\n"
          "      clock-frequency = <" << cpu_hz << ">;\n"
          "      CPU" << i << "_intc: interrupt-controller {\n"
          "        #address-cells = <2>;\n"
@@ -362,6 +365,36 @@ int fdt_parse_pmp_alignment(const void *fdt, int cpu_offset, reg_t *pmp_align)
   rc = fdt_get_node_addr_size(fdt, cpu_offset, pmp_align, NULL,
                               "riscv,pmpgranularity");
   if (rc < 0 || !pmp_align)
+    return -ENODEV;
+
+  return 0;
+}
+
+int fdt_parse_spmp_num(const void *fdt, int cpu_offset, reg_t *spmp_num)
+{
+  int rc;
+
+  if ((rc = check_cpu_node(fdt, cpu_offset)) < 0)
+    return rc;
+
+  rc = fdt_get_node_addr_size(fdt, cpu_offset, spmp_num, NULL,
+                              "riscv,spmpregions");
+  if (rc < 0 || !spmp_num)
+    return -ENODEV;
+
+  return 0;
+}
+
+int fdt_parse_spmp_alignment(const void *fdt, int cpu_offset, reg_t *spmp_align)
+{
+  int rc;
+
+  if ((rc = check_cpu_node(fdt, cpu_offset)) < 0)
+    return rc;
+
+  rc = fdt_get_node_addr_size(fdt, cpu_offset, spmp_align, NULL,
+                              "riscv,spmpgranularity");
+  if (rc < 0 || !spmp_align)
     return -ENODEV;
 
   return 0;

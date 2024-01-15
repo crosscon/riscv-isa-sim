@@ -10,6 +10,7 @@ std::string make_dts(size_t insns_per_rtc_tick, size_t cpu_hz,
                      reg_t initrd_start, reg_t initrd_end,
                      const char* bootargs,
                      size_t pmpregions,
+                     size_t spmpregions,
                      std::vector<processor_t*> procs,
                      std::vector<std::pair<reg_t, abstract_mem_t*>> mems,
                      std::string device_nodes);
@@ -31,5 +32,7 @@ int fdt_parse_ns16550(const void *fdt, reg_t *ns16550_addr,
                       const char *compatible);
 int fdt_parse_pmp_num(const void *fdt, int cpu_offset, reg_t *pmp_num);
 int fdt_parse_pmp_alignment(const void *fdt, int cpu_offset, reg_t *pmp_align);
+int fdt_parse_spmp_num(const void *fdt, int cpu_offset, reg_t *spmp_num);
+int fdt_parse_spmp_alignment(const void *fdt, int cpu_offset, reg_t *spmp_align);
 int fdt_parse_mmu_type(const void *fdt, int cpu_offset, const char **mmu_type);
 #endif

@@ -380,7 +380,7 @@ bool spmpaddr_csr_t::subset_match(reg_t addr, reg_t len) const noexcept {
   return !(is_tor ? tor_homogeneous : napot_homogeneous);
 }
 
-bool spmpaddr_csr_t::access_ok(access_type type, reg_t mode, bool virt, bool sstatus_sum) const noexcept  {
+bool spmpaddr_csr_t::access_ok(access_type type, reg_t mode, bool req_from_virt, bool sstatus_sum) const noexcept  {
   
   const bool cfgx = cfg & SPMP_X;
   const bool cfgw = cfg & SPMP_W;
@@ -396,7 +396,7 @@ bool spmpaddr_csr_t::access_ok(access_type type, reg_t mode, bool virt, bool sst
   const bool typew = type == STORE;
   const bool normal_rwx = (typer && cfgr) || (typew && cfgw) || (typex && cfgx);
 
-  const bool spmp_check_for_vu_or_vs = !is_vspmp_csr && virt;
+  const bool spmp_check_for_vu_or_vs = !is_vspmp_csr && req_from_virt;
 
   if (mmode) {
     return true;

@@ -68,8 +68,7 @@ processor_t::processor_t(const isa_parser_t *isa, const cfg_t *cfg,
   set_pmp_num(cfg->pmpregions);
   
   set_spmp_granularity(1 << PMP_SHIFT);
-  // TODO: Should be read as a separate configuration parameter.
-  set_spmp_num(cfg->pmpregions);
+  set_spmp_num(cfg->spmpregions);
 
   if (isa->get_max_xlen() == 32)
     set_mmu_capability(IMPL_MMU_SV32);

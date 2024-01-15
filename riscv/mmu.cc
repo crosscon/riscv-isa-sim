@@ -396,22 +396,31 @@ bool mmu_t::pmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode)
           && (!mseccfg_mml || ((type == LOAD) || (type == STORE))));
 }
 
-bool mmu_t::spmp_enabled() {
+bool mmu_t::spmp_enabled(const bool req_from_virt) {
+  
+  const unsigned xlen = proc->get_const_xlen();
 
-  // TODO: In case that, hgatp.mode != BARE, SPMP probably also be disabled.
+  if (req_from_virt) {
+    // SPMP should only perform checks when hgatp.mode = Bare if request is coming from VU or VS-mode.
 
-  // SPMP should only perform checks when satp.mode = Bare.
-  const reg_t satp = proc->state.satp->read();
-  const unsigned int xlen = proc->get_const_xlen();
+    const reg_t hgatp = proc->state.hgatp->read();
 
-  const bool e = xlen == 32 ?
-      (get_field(satp, SATP32_MODE) == SATP_MODE_OFF) :
-      (get_field(satp, SATP64_MODE) == SATP_MODE_OFF);
+    return xlen == 32 ?
+        (get_field(hgatp, HGATP32_MODE) == HGATP_MODE_OFF) :
+        (get_field(hgatp, HGATP64_MODE) == HGATP_MODE_OFF);
 
-  return e;
+  } else {
+    // SPMP should only perform checks when satp.mode = Bare if request is coming from U or S-mode.
+
+    const reg_t satp = proc->state.satp->read();
+
+    return xlen == 32 ?
+        (get_field(satp, SATP32_MODE) == SATP_MODE_OFF) :
+        (get_field(satp, SATP64_MODE) == SATP_MODE_OFF);
+  }
 }
 
-bool mmu_t::vspmp_enabled(const bool virt) {
+bool mmu_t::vspmp_enabled() {
   // SPMP should only perform checks when vsatp.mode = Bare.
   const unsigned int xlen = proc->get_const_xlen();
   const reg_t satp = proc->state.vsatp->read();
@@ -425,10 +434,12 @@ bool mmu_t::vspmp_enabled(const bool virt) {
 
 bool mmu_t::spmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode, const bool req_from_virt)
 {
+  // If request is coming from VU or VS-mode, req_from_virt should be set to true.
+
   if (!proc || proc->n_spmp == 0)
     return true;
 
-  if (!spmp_enabled())
+  if (!spmp_enabled(req_from_virt))
     return true;
 
   for (size_t i = 0; i < proc->n_spmp; i++) {
@@ -443,14 +454,12 @@ bool mmu_t::spmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode, const b
     }
 
     if (any_match) {
-      // If the PMP matches only a strict subset of the access, fail it
+      // If the entry matches only a strict subset of the access, deny the access.
       if (!all_match)
         return false;
 
       const bool sstatus_sum = proc->state.sstatus->readvirt(false) & SSTATUS_SUM;
-      // TODO: Having orig_spmpaddr and using virt=true does not make a lot of sense.
-      // Maybe virt parameter should be passed to the spmpcfg_crt_t through a constructor.
-      return proc->state.spmpaddr[i]->orig_spmpaddr->access_ok(type, mode, proc->state.v, sstatus_sum);
+      return proc->state.spmpaddr[i]->orig_spmpaddr->access_ok(type, mode, req_from_virt, sstatus_sum);
     }
   }
 
@@ -468,7 +477,7 @@ bool mmu_t::vspmp_ok(reg_t addr, reg_t len, access_type type, bool virt, reg_t m
     return true;
   }
 
-  if (!vspmp_enabled(virt)) {
+  if (!vspmp_enabled()) {
     return true;
   }
 
@@ -484,7 +493,7 @@ bool mmu_t::vspmp_ok(reg_t addr, reg_t len, access_type type, bool virt, reg_t m
     }
 
     if (any_match) {
-      // If the PMP matches only a strict subset of the access, fail it
+      // If the entry matches only a strict subset of the access, deny the access.
       if (!all_match)
         return false;
 
@@ -520,7 +529,7 @@ reg_t mmu_t::spmp_homogeneous(reg_t addr, reg_t len)
   if (!proc)
     return true;
 
-  if (!spmp_enabled())
+  if (!spmp_enabled(true))
     return true;
 
   for (size_t i = 0; i < proc->n_spmp; i++)
@@ -541,7 +550,7 @@ reg_t mmu_t::vspmp_homogeneous(reg_t addr, reg_t len)
     return true;
 
   // We always check if access is homogeneous except of vSPMP is disabled.
-  if (!vspmp_enabled(true))
+  if (!vspmp_enabled())
     return true;
 
   for (size_t i = 0; i < proc->n_spmp; i++)

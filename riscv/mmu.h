@@ -497,8 +497,8 @@ private:
   reg_t spmp_homogeneous(reg_t addr, reg_t len);
   reg_t vspmp_homogeneous(reg_t addr, reg_t len);
   bool pmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode);
-  bool spmp_enabled();
-  bool vspmp_enabled(const bool virt);
+  bool spmp_enabled(const bool req_from_virt);
+  bool vspmp_enabled();
   bool spmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode, const bool req_from_virt);
   bool vspmp_ok(reg_t addr, reg_t len, access_type type, bool virt, reg_t mode);
 

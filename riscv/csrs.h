@@ -141,6 +141,8 @@ class pmpcfg_csr_t: public csr_t {
 };
 
 // SPMP related registers
+//
+// Note, spmpaddr_csr_t and spmpcfg_csr_t classes are used to implement SPMP and vSPMP.
 
 class spmpaddr_csr_t: public csr_t {
  public:
@@ -157,7 +159,7 @@ class spmpaddr_csr_t: public csr_t {
   bool subset_match(reg_t addr, reg_t len) const noexcept;
 
   // Is the specified access allowed given the spmpcfg privileges?
-  bool access_ok(access_type type, reg_t mode, bool virt, bool sstatus_sum) const noexcept;
+  bool access_ok(access_type type, reg_t mode, bool req_from_virt, bool sstatus_sum) const noexcept;
 
  protected:
   virtual bool unlogged_write(const reg_t val) noexcept override;
@@ -176,7 +178,6 @@ class spmpaddr_csr_t: public csr_t {
   // E.g. for 4KiB region, returns 0xffffffff_fffff000.
   reg_t napot_mask() const noexcept;
 
-  // TODO: Restrict access for spmpcfg_csr_t only to cfg.
   // To allow spmpcfg_csr_t to access cfg.
   friend class spmpcfg_csr_t;
 

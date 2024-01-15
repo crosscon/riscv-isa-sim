@@ -140,7 +140,7 @@ sim_t::sim_t(const cfg_t *cfg, bool halted,
       device_nodes.append(factory->generate_dts(this));
     dts = make_dts(INSNS_PER_RTC_TICK, CPU_HZ,
                    initrd_bounds.first, initrd_bounds.second,
-                   cfg->bootargs(), cfg->pmpregions, procs, mems,
+                   cfg->bootargs(), cfg->pmpregions, cfg->spmpregions, procs, mems,
                    device_nodes);
     dtb = dts_compile(dts);
   }
@@ -189,19 +189,26 @@ sim_t::sim_t(const cfg_t *cfg, bool halted,
       break;
 
     //handle pmp
-    // TODO: spmp should be handled separately.
-    reg_t pmp_num, pmp_granularity;
+    reg_t pmp_num =0;
+    reg_t pmp_granularity = 0;
     if (fdt_parse_pmp_num(fdt, cpu_offset, &pmp_num) != 0)
       pmp_num = 0;
     procs[cpu_idx]->set_pmp_num(pmp_num);
-    // TODO: spmp should be handled separately.
-    procs[cpu_idx]->set_spmp_num(pmp_num);
 
-    if (fdt_parse_pmp_alignment(fdt, cpu_offset, &pmp_granularity) == 0) {
-      procs[cpu_idx]->set_pmp_granularity(pmp_granularity);
-      // TODO: spmp should be handled separately.
-      procs[cpu_idx]->set_spmp_granularity(pmp_granularity);
-    }
+    if (fdt_parse_pmp_alignment(fdt, cpu_offset, &pmp_granularity) != 0)
+      pmp_granularity = 0;
+    procs[cpu_idx]->set_pmp_granularity(pmp_granularity);
+
+    // handle spmp
+    reg_t spmp_num = 0;
+    reg_t spmp_granularity = 0;
+    if (fdt_parse_spmp_num(fdt, cpu_offset, &spmp_num) != 0)
+      spmp_num = 0;
+    procs[cpu_idx]->set_spmp_num(spmp_num);
+
+    if (fdt_parse_spmp_alignment(fdt, cpu_offset, &spmp_granularity) != 0)
+      spmp_granularity = 0;
+    procs[cpu_idx]->set_spmp_granularity(spmp_granularity);
     
     //handle mmu-type
     const char *mmu_type;
