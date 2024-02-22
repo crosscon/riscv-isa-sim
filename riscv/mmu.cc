@@ -76,6 +76,10 @@ mmu_t::trans_addr_t mmu_t::translate(mem_access_info_t access_info, reg_t len)
   bool virt = access_info.effective_virt;
   reg_t mode = (reg_t) access_info.effective_priv;
 
+  if (access_info.flags.hlvx) {
+    virt = true;
+  }
+
   trans_addr_t taddr = walk(access_info, len);
   const reg_t poffset = addr & (PGSIZE-1);
   taddr = {taddr.paddr | poffset, taddr.gpaddr | poffset};
