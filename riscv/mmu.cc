@@ -58,12 +58,21 @@ void throw_access_exception(bool virt, reg_t addr, access_type type)
 
 void throw_spmp_access_exception(bool virt, reg_t addr, access_type type)
 {
-  switch (type) {
-    case FETCH: throw trap_instruction_page_fault(virt, addr, 0, 0);
-    case LOAD: throw trap_load_page_fault(virt, addr, 0, 0);
-    case STORE: throw trap_store_page_fault(virt, addr, 0, 0);
-    default: abort();
-  }
+    if (virt) {
+        switch (type) {
+            case FETCH: throw trap_instruction_guest_page_fault(addr, addr >> 2, 0);
+            case LOAD: throw trap_load_guest_page_fault(addr, addr >> 2, 0);
+            case STORE: throw trap_store_guest_page_fault(addr, addr >> 2, 0);
+            default: abort();
+        }
+    } else {
+        switch (type) {
+            case FETCH: throw trap_instruction_page_fault(virt, addr, 0, 0);
+            case LOAD: throw trap_load_page_fault(virt, addr, 0, 0);
+            case STORE: throw trap_store_page_fault(virt, addr, 0, 0);
+            default: abort();
+        }
+    }
 }
 
 mmu_t::trans_addr_t mmu_t::translate(mem_access_info_t access_info, reg_t len)
