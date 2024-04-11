@@ -1,7 +1,7 @@
 Spike RISC-V ISA Simulator
 ============================
 
-Here you can find Spike, the RISC-V ISA Simulator, extended with the reference implementation of the _unified S-mode Physical Memory Protection (SPMP)_ extension: one of the suggested approaches for how to extend the [SPMP model](https://github.com/riscv/riscv-spmp) so that it can also be used by the hypervisor extension.
+Here you can find Spike, the RISC-V ISA Simulator, extended with the reference implementation of the _unified S-mode Physical Memory Protection (SPMP)_ extension: one of the suggested approaches for how to extend the [SPMP model](https://github.com/riscv/riscv-spmp) so that it can also be used by the hypervisor.
 
 -------------
 
