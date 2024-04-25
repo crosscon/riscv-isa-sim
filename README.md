@@ -5,7 +5,7 @@ Here you can find **Spike**, the RISC-V ISA Simulator, extended with the referen
 
 You can find the instructions on how to use Spike below.
 
-Spike simulator was extended with SPMP extension as part of the [CROSSCON project](https://crosscon.eu/) that received funding from the European Union’s Horizon Europe research and innovation programme under grant agreement No 101070537.
+Spike simulator was extended with unified SPMP extension as part of the [CROSSCON project](https://crosscon.eu/) that received funding from the European Union’s Horizon Europe research and innovation programme under grant agreement No 101070537.
 
 <p align="center">
     <img src="https://crosscon.eu/sites/crosscon/themes/crosscon/images/eu.svg" width=10% height=10%>
