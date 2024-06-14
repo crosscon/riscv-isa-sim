@@ -477,7 +477,7 @@ bool mmu_t::spmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode, const b
   }
 
   // in case matching region is not found
-  return (mode == PRV_M) || (mode == PRV_S);
+  return (mode == PRV_M) || ((mode == PRV_S) && !req_from_virt);
 }
 
 bool mmu_t::vspmp_ok(reg_t addr, reg_t len, access_type type, bool virt, reg_t mode)
